@@ -3,59 +3,15 @@
 import { createClient } from '@/lib/supabase/server'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import {
-    updateUserKnowledge,
-    updateUserPreferences,
     UserPreferences,
-    BusySlot
 } from '@/lib/accountability'
+import {
+    getAgentToolDefinitions,
+    executeAgentTool
+} from './agent-registry'
 
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY!)
 const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
-
-// Define tools for the AI agent
-const tools = [
-    {
-        name: "schedule_session",
-        description: "Schedule a new study session for the user",
-        parameters: {
-            type: "object",
-            properties: {
-                startTime: { type: "string", description: "ISO 8601 string for the session start time" },
-                durationMinutes: { type: "number", description: "Duration of the session in minutes" },
-                topic: { type: "string", description: "Topic or focus of the study session" }
-            },
-            required: ["startTime", "durationMinutes", "topic"]
-        }
-    },
-    {
-        name: "add_note",
-        description: "Save a note about the user's learning progress, context, or key details to remember later",
-        parameters: {
-            type: "object",
-            properties: {
-                content: { type: "string", description: "The content of the note" },
-                category: {
-                    type: "string",
-                    enum: ["learning_context", "reminder", "general"],
-                    description: "Category of the note"
-                }
-            },
-            required: ["content", "category"]
-        }
-    },
-    {
-        name: "resolve_queue_item",
-        description: "Mark a queue item as resolved or scheduled",
-        parameters: {
-            type: "object",
-            properties: {
-                queueItemId: { type: "string", description: "The ID of the queue item to resolve" },
-                status: { type: "string", enum: ["scheduled", "resolved"], description: "The new status" }
-            },
-            required: ["queueItemId", "status"]
-        }
-    }
-];
 
 export async function chatWithSchedulingAssistant(
     messages: { role: 'user' | 'assistant'; content: string }[],
@@ -96,17 +52,39 @@ export async function chatWithSchedulingAssistant(
         .eq('status', 'pending')
         .limit(5)
 
+    const { data: recentAgentMessages } = await supabase
+        .from('agent_messages')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(5)
+
+    const { data: recentWhatsAppMessages } = await supabase
+        .from('agent_messages')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('type', 'whatsapp_message')
+        .order('created_at', { ascending: false })
+        .limit(5)
+
     const currentPrefs: UserPreferences = prefs || {
         study_times: { avoid: ['morning'], preferred: ['afternoon', 'evening'], busy_slots: [] },
         knowledge_assessment: {}
     }
 
-    // 2. Build System Prompt with Rich Context
+    // 2. Dynamic Tool Discovery
+    const availableTools = getAgentToolDefinitions();
+
+    // 3. Build System Prompt with Rich Context
     const systemPrompt = `
     You are an Autonomous Accountability Agent for a personalized learning platform. 
     Your goal is to actively manage the student's schedule, remember their context, and ensure they learn effectively.
     
-    You have permission to take actions on behalf of the user using the provided tools.
+    You have FULL ACCESS to act on the user's behalf through the tools listed below.
+
+    === NEW CAPABILITY: MATERIAL DISCOVERY ===
+    If the user mentions a specific topic, textbook, or chapter that you don't recognize in their context, you MUST use the \`search_materials\` tool to see if the content already exists in the global library.
+    If you find relevant material, tell the user about it and offer to call \`import_material\`.
 
     === CURRENT CONTEXT ===
     TIME: ${currentTime}
@@ -125,21 +103,38 @@ export async function chatWithSchedulingAssistant(
     PENDING TASK QUEUE:
     ${pendingQueue?.map(q => `- [ID: ${q.id}] ${q.test_info} (~${Math.round(q.estimated_time_seconds / 3600)}h)`).join('\n') || "Queue is empty."}
     
+    RECENT AGENT MESSAGES (YOUR RECENT ASKS):
+    ${recentAgentMessages?.map(m => `- [Type: ${m.type}] ${m.content}`).join('\n') || "No recent agent messages."}
+
+    WHATSAPP MESSAGES (USER RECENT INPUTS):
+    ${recentWhatsAppMessages?.map(m => `- [From: ${m.metadata?.from}] ${m.content}`).join('\n') || "No recent WhatsApp messages."}
+
     CURRENT FOCUS ITEM ID: ${currentQueueItemId || 'None'}
     =======================
 
-    INSTRUCTIONS:
-    1. **Be Proactive**: If the user mentions a conflict, effectively reschedule. If they mention a struggle, note it down.
-    2. **Use Tools**: 
-       - If the user agrees to a time, call \`schedule_session\`.
-       - If the user mentions a constraint or learning context (e.g., "I'm bad at physics"), call \`add_note\`.
-       - If you schedule a session for a queue item, also call \`resolve_queue_item\`.
-    3. **Natural Dialogue**: After calling tools, confirm the action naturally to the user.
+    AVAILABLE TOOLS:
+    ${JSON.stringify(availableTools, null, 2)}
 
+    INSTRUCTIONS:
+    1. **Be Proactive**: If the user mentions a conflict, rescheduling, or an interest, use the tools immediately.
+    2. **Acting on Behalf**: You don't just "chat," you "act." If someone says "schedule this," call the tool.
+    3. **Combined Response**: You can output multiple JSON tool call blocks in your response.
+    4. **Natural Feedback**: Always explain what actions you took to the user.
+
+    TO USE A TOOL, output a JSON block like this:
+    \`\`\`json
+    {
+      "tool": "tool_name",
+      "arguments": { ... }
+    }
+    \`\`\`
+    
     CRITICAL: 
-    - Always check the "Recurring Busy Slots" and "Upcoming Schedule" before suggesting a time.
-    - Do not hallucinate actions. Only use the provided tools.
-    - If you update preferences (like new recurring slots), you can still output the JSON block for preferences along with tool calls.
+    - Always respect "Recurring Busy Slots" when scheduling.
+    - If you update preferences (like new recurring slots), include a block:
+      \`\`\`json
+      { "preference_update": { ... } }
+      \`\`\`
     `;
 
     // Validate history
@@ -158,86 +153,41 @@ export async function chatWithSchedulingAssistant(
         },
     });
 
-    const augmentedPrompt = `
-    ${systemPrompt}
-
-    TO USE A TOOL, output a JSON block like this:
-    \`\`\`json
-    {
-      "tool": "tool_name",
-      "arguments": { ... }
-    }
-    \`\`\`
-    
-    You can output multiple tool blocks if needed. You can also output the standard preference update JSON block from before.
-    
-    User Message: ${messages[messages.length - 1].content}
-    `;
+    const augmentedPrompt = `${systemPrompt}\n\nUser Message: ${messages[messages.length - 1].content}`;
 
     const result = await chat.sendMessage(augmentedPrompt);
     const responseText = result.response.text();
 
-    // 3. Process Tool Calls & Updates
     const jsonMatches = responseText.matchAll(/```json\s*([\s\S]*?)\s*```/g);
     let cleanResponseText = responseText.replace(/```json\s*[\s\S]*?\s*```/g, '');
     cleanResponseText = cleanResponseText.replace(/^\s*[\r\n]/gm, '').trim();
+
+    const toolsUsed: string[] = [];
 
     for (const match of jsonMatches) {
         try {
             const data = JSON.parse(match[1]);
 
-            // Handle Standard Preference Updates
+            // Handle Standard Preference Updates (legacy support)
             if (data.preference_update) {
+                const { updateUserPreferences } = await import('@/lib/accountability');
                 await updateUserPreferences(user.id, data.preference_update);
+                toolsUsed.push('update_preferences');
             }
             if (data.knowledge_update) {
+                const { updateUserKnowledge } = await import('@/lib/accountability');
                 await updateUserKnowledge(user.id, data.knowledge_update);
+                toolsUsed.push('update_knowledge');
             }
 
-            // Handle Tool Calls
-            if (data.tool === "schedule_session") {
-                const { startTime, durationMinutes, topic } = data.arguments;
-                // Create a placeholder queue item if none exists for ad-hoc sessions
-                let qId = currentQueueItemId;
-
-                if (!qId) {
-                    const { data: newQ } = await supabase.from('study_queue').insert({
-                        user_id: user.id,
-                        test_info: topic,
-                        status: 'scheduled',
-                        estimated_time_seconds: durationMinutes * 60
-                    }).select().single();
-                    if (newQ) qId = newQ.id;
+            // Handle Registry Tools
+            if (data.tool) {
+                // If it's a schedule session, inject the currentQueueItemId if not provided
+                if (data.tool === 'schedule_session' && !data.arguments.queueItemId) {
+                    data.arguments.queueItemId = currentQueueItemId;
                 }
-
-                if (qId) {
-                    await supabase.from('user_schedules').insert({
-                        user_id: user.id,
-                        queue_item_id: qId,
-                        scheduled_start: startTime,
-                        duration_seconds: durationMinutes * 60,
-                        status: 'upcoming'
-                    });
-
-                    // Also mark the queue item as scheduled if it was pending
-                    await supabase.from('study_queue')
-                        .update({ status: 'scheduled' })
-                        .eq('id', qId);
-                }
-            }
-
-            if (data.tool === "add_note") {
-                await supabase.from('user_notes').insert({
-                    user_id: user.id,
-                    content: data.arguments.content,
-                    category: data.arguments.category
-                });
-            }
-
-            if (data.tool === "resolve_queue_item") {
-                await supabase.from('study_queue')
-                    .update({ status: data.arguments.status })
-                    .eq('id', data.arguments.queueItemId);
+                await executeAgentTool(user.id, data.tool, data.arguments);
+                toolsUsed.push(data.tool);
             }
 
         } catch (e) {
@@ -245,5 +195,8 @@ export async function chatWithSchedulingAssistant(
         }
     }
 
-    return cleanResponseText;
+    return {
+        content: cleanResponseText,
+        toolsUsed: Array.from(new Set(toolsUsed)) // Unique tools
+    };
 }

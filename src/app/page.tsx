@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { GraduationCap, LogOut, User as UserIcon, Bell } from 'lucide-react'
+import Link from 'next/link'
 import Dashboard from '@/components/Dashboard'
 
 export default async function Home() {
@@ -79,7 +80,7 @@ export default async function Home() {
           </p>
           <div className="flex gap-6">
             <a href="#" className="text-white/20 hover:text-white transition-colors text-[10px] uppercase tracking-widest font-bold">Help Center</a>
-            <a href="#" className="text-white/20 hover:text-white transition-colors text-[10px] uppercase tracking-widest font-bold">Account Settings</a>
+            <Link href="/settings" className="text-white/20 hover:text-white transition-colors text-[10px] uppercase tracking-widest font-bold">Account Settings</Link>
           </div>
         </footer>
       </div>

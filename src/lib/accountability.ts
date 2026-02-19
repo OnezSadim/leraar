@@ -54,6 +54,8 @@ export async function estimateQueueItemTime(text: string): Promise<number> {
     }
 }
 
+import { listEvents } from './google-calendar';
+
 /**
  * Proposes a study schedule based on user preferences and availability.
  */
@@ -61,7 +63,7 @@ export async function proposeSchedule(
     userId: string,
     queueItemId: string,
     durationSeconds: number
-): Promise<{ startTime: string; duration: number }> {
+): Promise<{ startTime: string; duration: number; conflictDetected?: boolean; suggestedReason?: string }> {
     const supabase = await createClient();
 
     // 1. Get user preferences
@@ -76,25 +78,43 @@ export async function proposeSchedule(
         knowledge_assessment: {}
     };
 
-    // 2. Simple scheduling logic: find the next preferred time slot
-    // In a real app, this would check a calendar or existing schedules.
-    // For now, we'll suggest a time tomorrow in a preferred slot.
-
-    const now = new Date();
-    const suggestion = new Date(now);
-    suggestion.setDate(now.getDate() + 1); // Tomorrow
-
-    if (preferences.study_times.preferred.includes('afternoon')) {
-        suggestion.setHours(14, 0, 0, 0);
-    } else if (preferences.study_times.preferred.includes('evening')) {
-        suggestion.setHours(19, 0, 0, 0);
-    } else {
-        suggestion.setHours(10, 0, 0, 0); // Fallback
+    // 2. Fetch Google Calendar events for the next week
+    let calendarEvents: any[] = [];
+    try {
+        const now = new Date();
+        const oneWeekLater = new Date();
+        oneWeekLater.setDate(now.getDate() + 7);
+        calendarEvents = await listEvents(userId, now, oneWeekLater);
+    } catch (e) {
+        console.warn('Could not fetch calendar events, falling back to basic logic:', e);
     }
 
-    // Handle "avoid" constraint (specifically morning)
-    if (preferences.study_times.avoid.includes('morning') && suggestion.getHours() < 12) {
-        suggestion.setHours(14, 0, 0, 0); // Push to afternoon
+    // 3. Simple conflict-aware scheduling
+    const now = new Date();
+    const suggestion = new Date(now);
+    suggestion.setDate(now.getDate() + 1); // Start looking from tomorrow
+
+    // Basic heuristic: check preferred slots and verify no calendar conflict
+    const preferredHours = preferences.study_times.preferred.includes('afternoon') ? 14 : 19;
+    suggestion.setHours(preferredHours, 0, 0, 0);
+
+    // Simple conflict check (find if any event overlaps with this 1-hour slot)
+    const endTime = new Date(suggestion.getTime() + durationSeconds * 1000);
+    const hasConflict = calendarEvents.some(event => {
+        const eventStart = new Date(event.start?.dateTime || event.start?.date);
+        const eventEnd = new Date(event.end?.dateTime || event.end?.date);
+        return (suggestion < eventEnd && endTime > eventStart);
+    });
+
+    if (hasConflict) {
+        // Find next free slot (very basic: next day)
+        suggestion.setDate(suggestion.getDate() + 1);
+        return {
+            startTime: suggestion.toISOString(),
+            duration: durationSeconds,
+            conflictDetected: true,
+            suggestedReason: 'Conflict detected in your Google Calendar at the original preferred time.'
+        };
     }
 
     return {

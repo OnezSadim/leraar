@@ -14,6 +14,7 @@ import { chatWithSchedulingAssistant } from '@/lib/actions/scheduling-actions'
 interface Message {
     role: 'assistant' | 'user';
     content: string;
+    toolsUsed?: string[];
 }
 
 export default function SchedulingAssistant({ onClose, queueItemId }: { onClose: () => void, queueItemId?: string }) {
@@ -57,9 +58,17 @@ export default function SchedulingAssistant({ onClose, queueItemId }: { onClose:
                 hour12: true
             })
 
-            const response = await chatWithSchedulingAssistant(newMessages, currentTime, queueItemId)
+            const response = await chatWithSchedulingAssistant(
+                newMessages.map(m => ({ role: m.role, content: m.content })),
+                currentTime,
+                queueItemId
+            )
 
-            setMessages(prev => [...prev, { role: 'assistant', content: response }])
+            setMessages(prev => [...prev, {
+                role: 'assistant',
+                content: response.content,
+                toolsUsed: response.toolsUsed
+            }])
         } catch (error) {
             console.error('Error chatting with assistant:', error)
             setMessages(prev => [...prev, { role: 'assistant', content: "Sorry, I'm having trouble connecting right now. Please try again." }])
@@ -101,12 +110,27 @@ export default function SchedulingAssistant({ onClose, queueItemId }: { onClose:
                             className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'} animate-in slide-in-from-bottom-2 duration-300`}
                         >
                             <div className={`
-                max-w-[85%] p-4 rounded-2xl text-sm leading-relaxed
+                max-w-[85%] p-4 rounded-2xl text-sm leading-relaxed relative group
                 ${m.role === 'user'
                                     ? 'bg-indigo-500 text-white rounded-tr-none shadow-lg shadow-indigo-500/20'
                                     : 'bg-white/5 text-white/80 border border-white/10 rounded-tl-none'}
               `}>
                                 {m.content}
+
+                                {m.role === 'assistant' && m.toolsUsed && m.toolsUsed.length > 0 && (
+                                    <div className="mt-3 flex flex-wrap gap-2 pt-2 border-t border-white/5">
+                                        {m.toolsUsed.map((tool, index) => (
+                                            <div key={index} className="flex items-center gap-1.5 px-2 py-1 bg-white/5 rounded-lg border border-white/5 text-[10px] font-bold uppercase tracking-wider text-indigo-300/80">
+                                                {tool === 'schedule_session' ? (
+                                                    <CalendarIcon className="h-3 w-3" />
+                                                ) : (
+                                                    <Sparkles className="h-3 w-3" />
+                                                )}
+                                                {tool.split('_').join(' ')}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         </div>
                     ))}

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
     X,
     Upload,
@@ -8,10 +8,12 @@ import {
     Plus,
     Check,
     AlertCircle,
-    Loader2
+    Loader2,
+    BookOpen
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { processMaterialAction } from '@/lib/actions/study-actions'
+import { Subject } from '@/types/database'
 
 interface MaterialImportProps {
     onClose: () => void;
@@ -24,6 +26,16 @@ export default function MaterialImport({ onClose, onSuccess }: MaterialImportPro
     const [isProcessing, setIsProcessing] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [success, setSuccess] = useState(false)
+    const [subjects, setSubjects] = useState<Subject[]>([])
+    const [selectedSubjectId, setSelectedSubjectId] = useState<string>('cs')
+
+    useEffect(() => {
+        const fetchSubjects = async () => {
+            const { data } = await supabase.from('subjects').select('*')
+            if (data) setSubjects(data)
+        }
+        fetchSubjects()
+    }, [])
 
     const handleImport = async () => {
         if (!input.trim()) return
@@ -60,7 +72,7 @@ export default function MaterialImport({ onClose, onSuccess }: MaterialImportPro
                     overview,
                     content,
                     practice_questions: practiceQuestions,
-                    subject_id: 'cs'
+                    subject_id: selectedSubjectId
                 })
                 .select()
                 .single()
@@ -123,6 +135,30 @@ export default function MaterialImport({ onClose, onSuccess }: MaterialImportPro
                         </div>
                     </div>
 
+                    {/* Subject Selection */}
+                    <div className="space-y-3">
+                        <label className="text-xs font-black text-white/40 uppercase tracking-widest px-1">Select Subject</label>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                            {subjects.map((s) => (
+                                <button
+                                    key={s.id}
+                                    onClick={() => setSelectedSubjectId(s.id)}
+                                    className={`
+                                        flex items-center gap-3 p-4 rounded-2xl border transition-all duration-300
+                                        ${selectedSubjectId === s.id
+                                            ? 'bg-indigo-500/20 border-indigo-500/50 shadow-lg'
+                                            : 'bg-white/5 border-white/10 hover:bg-white/10'}
+                                    `}
+                                >
+                                    <div className={`p-2 rounded-lg bg-gradient-to-br ${s.color} shadow-sm`}>
+                                        <BookOpen className="h-4 w-4 text-white" />
+                                    </div>
+                                    <span className={`text-xs font-bold ${selectedSubjectId === s.id ? 'text-white' : 'text-white/60'}`}>{s.name}</span>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
                     {/* Input Field */}
                     <div className="space-y-3">
                         <div className="flex justify-between items-center px-1">
@@ -131,7 +167,7 @@ export default function MaterialImport({ onClose, onSuccess }: MaterialImportPro
                         </div>
                         <textarea
                             placeholder="Enter your data here..."
-                            className="w-full h-64 bg-white/5 border border-white/10 rounded-3xl p-6 text-white placeholder:text-white/10 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all resize-none shadow-inner"
+                            className="w-full h-48 bg-white/5 border border-white/10 rounded-3xl p-6 text-white placeholder:text-white/10 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all resize-none shadow-inner"
                             value={input}
                             onChange={(e) => setInput(e.target.value)}
                         />

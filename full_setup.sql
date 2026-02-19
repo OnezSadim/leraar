@@ -119,7 +119,23 @@ CREATE TABLE IF NOT EXISTS user_preferences (
   study_times JSONB DEFAULT '{"avoid": ["morning"], "preferred": ["afternoon", "evening"], "busy_slots": []}'::jsonb,
   knowledge_assessment JSONB DEFAULT '{}'::jsonb, -- Stores user preferences or global knowledge state
   gemini_api_key TEXT, -- User-provided Google Gemini API Key
+  magister_url TEXT,
+  magister_username TEXT,
+  magister_password TEXT,
+  google_calendar_credentials JSONB DEFAULT '{}'::jsonb,
+  language TEXT DEFAULT 'en',
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Create agent_messages table for storing session suggestions and sync info
+CREATE TABLE IF NOT EXISTS agent_messages (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  content TEXT NOT NULL,
+  type TEXT NOT NULL, -- 'calendar_sync', 'study_reminder', etc.
+  metadata JSONB DEFAULT '{}'::jsonb,
+  is_read BOOLEAN DEFAULT false,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- Create group_subscriptions table for sharing
@@ -139,6 +155,16 @@ CREATE TABLE IF NOT EXISTS user_notes (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Create whatsapp_connection table
+CREATE TABLE IF NOT EXISTS whatsapp_connection (
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE PRIMARY KEY,
+  status TEXT DEFAULT 'disconnected', -- 'disconnected', 'connecting', 'connected'
+  qr_code TEXT,
+  session_data JSONB,
+  phone_number TEXT,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- 2. SECURITY (RLS)
 -- ------------------------------------------
 
@@ -154,8 +180,10 @@ ALTER TABLE study_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE study_queue ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_schedules ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_preferences ENABLE ROW LEVEL SECURITY;
+ALTER TABLE agent_messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE group_subscriptions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_notes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE whatsapp_connection ENABLE ROW LEVEL SECURITY;
 
 -- 3. POLICIES (DROP IF EXISTS + CREATE)
 -- ------------------------------------------
@@ -169,8 +197,7 @@ DROP POLICY IF EXISTS "Materials are viewable by everyone" ON materials;
 CREATE POLICY "Materials are viewable by everyone" ON materials FOR SELECT USING (true);
 
 -- Material Groups
-DROP POLICY IF EXISTS "Users can view their own groups" ON material_groups;
--- Updated to allow discovery
+DROP POLICY IF EXISTS "Material groups are viewable by authenticated users" ON material_groups;
 CREATE POLICY "Material groups are viewable by authenticated users" ON material_groups 
 FOR SELECT USING (auth.role() = 'authenticated');
 
@@ -184,8 +211,7 @@ DROP POLICY IF EXISTS "Users can delete their own groups" ON material_groups;
 CREATE POLICY "Users can delete their own groups" ON material_groups FOR DELETE USING (auth.uid() = user_id);
 
 -- Material Group Items
-DROP POLICY IF EXISTS "Users can view their group items" ON material_group_items;
--- Updated to allow subscribers to view items
+DROP POLICY IF EXISTS "Users can view group items they own or subscribe to" ON material_group_items;
 CREATE POLICY "Users can view group items they own or subscribe to" ON material_group_items FOR SELECT USING (
   EXISTS (SELECT 1 FROM material_groups WHERE id = group_id AND user_id = auth.uid()) OR
   EXISTS (SELECT 1 FROM group_subscriptions WHERE group_id = group_id AND user_id = auth.uid())
@@ -260,6 +286,12 @@ CREATE POLICY "Users can insert their own preferences" ON user_preferences FOR I
 DROP POLICY IF EXISTS "Users can update their own preferences" ON user_preferences;
 CREATE POLICY "Users can update their own preferences" ON user_preferences FOR UPDATE USING (auth.uid() = user_id);
 
+-- Agent Messages
+DROP POLICY IF EXISTS "Users can view their own messages" ON agent_messages;
+CREATE POLICY "Users can view their own messages" ON agent_messages FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can delete their own messages" ON agent_messages;
+CREATE POLICY "Users can delete their own messages" ON agent_messages FOR DELETE USING (auth.uid() = user_id);
+
 -- User Notes
 DROP POLICY IF EXISTS "Users can view their own notes" ON user_notes;
 CREATE POLICY "Users can view their own notes" ON user_notes FOR SELECT USING (auth.uid() = user_id);
@@ -270,27 +302,41 @@ CREATE POLICY "Users can update their own notes" ON user_notes FOR UPDATE USING 
 DROP POLICY IF EXISTS "Users can delete their own notes" ON user_notes;
 CREATE POLICY "Users can delete their own notes" ON user_notes FOR DELETE USING (auth.uid() = user_id);
 
+-- WhatsApp Connection
+DROP POLICY IF EXISTS "Users can view their own connection" ON whatsapp_connection;
+CREATE POLICY "Users can view their own connection" ON whatsapp_connection FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can upsert their own connection" ON whatsapp_connection;
+CREATE POLICY "Users can upsert their own connection" ON whatsapp_connection FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can update their own connection" ON whatsapp_connection;
+CREATE POLICY "Users can update their own connection" ON whatsapp_connection FOR UPDATE USING (auth.uid() = user_id);
+
 -- 4. SEED DATA
 -- ------------------------------------------
 
--- Seed Subjects
+-- Seed Subjects (Dutch VWO Curriculum)
 INSERT INTO subjects (id, name, icon, color) VALUES
-('math', 'Mathematics', 'GraduationCap', 'from-blue-500 to-indigo-600'),
-('physics', 'Physics', 'Atom', 'from-purple-500 to-purple-600'),
-('history', 'History', 'History', 'from-amber-500 to-orange-600'),
-('biology', 'Biology', 'FlaskConical', 'from-emerald-500 to-teal-600'),
-('cs', 'Computer Science', 'Code2', 'from-pink-500 to-rose-600')
+('nederlands', 'Nederlands', 'Book', 'from-orange-400 to-red-500'),
+('engels', 'Engels', 'Languages', 'from-blue-400 to-indigo-600'),
+('frans', 'Frans', 'Languages', 'from-blue-600 to-red-600'),
+('duits', 'Duits', 'Languages', 'from-yellow-400 to-red-600'),
+('spaans', 'Spaans', 'Languages', 'from-yellow-500 to-orange-500'),
+('latijn', 'Latijn', 'Scroll', 'from-stone-400 to-stone-600'),
+('grieks', 'Grieks', 'Landmark', 'from-blue-300 to-blue-500'),
+('wiskunde_a', 'Wiskunde A', 'Calculator', 'from-emerald-500 to-teal-700'),
+('wiskunde_b', 'Wiskunde B', 'Variable', 'from-emerald-600 to-teal-800'),
+('wiskunde_c', 'Wiskunde C', 'Divide', 'from-emerald-400 to-teal-600'),
+('wiskunde_d', 'Wiskunde D', 'Pi', 'from-emerald-700 to-teal-900'),
+('natuurkunde', 'Natuurkunde', 'Atom', 'from-purple-500 to-indigo-600'),
+('scheikunde', 'Scheikunde', 'FlaskConical', 'from-cyan-400 to-blue-500'),
+('biologie', 'Biologie', 'Leaf', 'from-green-400 to-emerald-600'),
+('economie', 'Economie', 'TrendingUp', 'from-rose-500 to-pink-600'),
+('bedrijfseconomie', 'Bedrijfseconomie', 'Briefcase', 'from-rose-600 to-pink-700'),
+('aardrijkskunde', 'Aardrijkskunde', 'Globe2', 'from-amber-600 to-orange-700'),
+('geschiedenis', 'Geschiedenis', 'History', 'from-stone-600 to-stone-800'),
+('maatschappijwetenschappen', 'Maatschappijwetenschappen', 'Users', 'from-indigo-400 to-purple-500'),
+('filosofie', 'Filosofie', 'Brain', 'from-violet-400 to-fuchsia-500'),
+('informatica', 'Informatica', 'Code2', 'from-slate-700 to-slate-900'),
+('kunst', 'Kunst', 'Palette', 'from-fuchsia-500 to-pink-500'),
+('muziek', 'Muziekwetenschappen', 'Music', 'from-purple-400 to-indigo-500'),
+('nlt', 'NLT', 'Microscope', 'from-teal-400 to-emerald-500')
 ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, icon = EXCLUDED.icon, color = EXCLUDED.color;
-
--- Seed Sample Materials
-INSERT INTO materials (subject_id, title, overview, content, practice_questions) 
-SELECT 'math', 'Calculus Basics: Limits', 'This material covers the concept of limits, approaching values from both sides, and basic limit laws.', 'A limit is the value that a function "approaches" as the input approaches some value. Limits are essential to calculus and are used to define continuity, derivatives, and integrals.', '[{"question": "What is the limit of f(x)=x^2 as x approaches 2?", "answer": "4"}]'
-WHERE NOT EXISTS (SELECT 1 FROM materials WHERE title = 'Calculus Basics: Limits');
-
-INSERT INTO materials (subject_id, title, overview, content, practice_questions) 
-SELECT 'physics', 'Newtonian Mechanics', 'Introduction to Newton''s three laws of motion and their applications in classical mechanics.', 'First Law: An object remains at rest unless acted upon by a force. Second Law: Force equals mass times acceleration (F=ma).', '[{"question": "What formula represents Newton''s Second Law?", "answer": "F = ma"}]'
-WHERE NOT EXISTS (SELECT 1 FROM materials WHERE title = 'Newtonian Mechanics');
-
-INSERT INTO materials (subject_id, title, overview, content, practice_questions) 
-SELECT 'cs', 'React Server Components', 'Deep dive into how RSCs allow rendering components on the server for better performance and SEO.', 'React Server Components (RSC) allow developers to write components that run exclusively on the server.', '[{"question": "Can Server Components use the useState hook?", "answer": "No"}]'
-WHERE NOT EXISTS (SELECT 1 FROM materials WHERE title = 'React Server Components');

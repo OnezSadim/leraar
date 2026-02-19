@@ -22,15 +22,31 @@ import {
     Loader2,
     PlayCircle,
     ClipboardList,
-    Sparkles
+    Sparkles,
+    Languages,
+    Scroll,
+    Landmark,
+    Calculator,
+    Variable,
+    Divide,
+    Pi,
+    Leaf,
+    TrendingUp,
+    Briefcase,
+    Globe,
+    Users,
+    Brain,
+    Palette,
+    Music,
+    Microscope
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { Subject, Material, MaterialGroup } from '@/types/database'
 import StudyQueue from './StudyQueue'
 import SchedulingAssistant from './SchedulingAssistant'
 import { estimateQueueItemTime } from '@/lib/accountability'
+import { searchGlobalMaterials, importMaterialToUser } from '@/lib/actions/material-actions'
 import MaterialImport from './MaterialImport'
-import CredentialsSettings from './CredentialsSettings'
 
 const ICON_MAP: Record<string, any> = {
     BookOpen,
@@ -39,7 +55,23 @@ const ICON_MAP: Record<string, any> = {
     History: HistoryIcon,
     FlaskConical,
     Code2,
-    Layers
+    Layers,
+    Languages,
+    Scroll,
+    Landmark,
+    Calculator,
+    Variable,
+    Divide,
+    Pi,
+    Leaf,
+    TrendingUp,
+    Briefcase,
+    Globe2: Globe,
+    Users,
+    Brain,
+    Palette,
+    Music,
+    Microscope
 }
 
 export default function Dashboard() {
@@ -52,6 +84,8 @@ export default function Dashboard() {
 
     const [selectedSubject, setSelectedSubject] = useState('all')
     const [searchQuery, setSearchQuery] = useState('')
+    const [isSearching, setIsSearching] = useState(false)
+    const [globalResults, setGlobalResults] = useState<{ materials: any[], groups: any[] } | null>(null)
     const [selectedMaterials, setSelectedMaterials] = useState<string[]>([])
     const [groupName, setGroupName] = useState('')
     const [isSaving, setIsSaving] = useState(false)
@@ -60,10 +94,34 @@ export default function Dashboard() {
     const [showImportModal, setShowImportModal] = useState(false)
     const [allGroups, setAllGroups] = useState<MaterialGroup[]>([])
     const [showDiscover, setShowDiscover] = useState(false)
+    const [subjectSearch, setSubjectSearch] = useState('')
 
     useEffect(() => {
         fetchInitialData()
     }, [])
+
+    async function handleSearch(query: string) {
+        setSearchQuery(query)
+        if (query.trim().length > 2) {
+            setIsSearching(true)
+            const results = await searchGlobalMaterials(query)
+            setGlobalResults(results)
+            setIsSearching(false)
+        } else {
+            setGlobalResults(null)
+        }
+    }
+
+    async function handleImport(materialId: string, groupId?: string) {
+        try {
+            await importMaterialToUser(materialId, groupId)
+            await fetchInitialData() // Refresh library
+            setGlobalResults(null)
+            setSearchQuery('')
+        } catch (error) {
+            console.error("Error importing material:", error)
+        }
+    }
 
     async function fetchInitialData() {
         setLoading(true)
@@ -191,42 +249,12 @@ export default function Dashboard() {
 
         } catch (error) {
             console.error('Error creating group:', error)
-            alert('Failed to save group. Have you run the setup_db.sql in your Supabase SQL editor?')
+            alert('Failed to save group. Please ensure the database is properly initialized.')
         } finally {
             setIsSaving(false)
         }
     }
 
-    const importDemoTest = async () => {
-        setIsImporting(true)
-        try {
-            const { data: { user } } = await supabase.auth.getUser()
-            if (!user) return
-
-            const demoText = "Physics Midterm on Friday covering Newtonian Mechanics and Thermodynamics."
-
-            const { data: queueItem, error } = await supabase
-                .from('study_queue')
-                .insert({
-                    user_id: user.id,
-                    test_info: demoText,
-                    estimated_time_seconds: 7200, // 2 hours
-                    status: 'pending'
-                })
-                .select()
-                .single()
-
-            if (error) throw error
-
-            setShowAssistant(true)
-            window.location.reload()
-
-        } catch (error) {
-            console.error('Error importing demo test:', error)
-        } finally {
-            setIsImporting(false)
-        }
-    }
 
     if (loading) {
         return (
@@ -238,22 +266,132 @@ export default function Dashboard() {
     }
 
     return (
-        <div className="space-y-8 animate-in fade-in duration-700">
+        <div className="space-y-12 animate-in fade-in duration-700">
+            {/* Learning Accountability Section (Top & Wide) */}
+            <div className="bg-white/5 backdrop-blur-xl rounded-[2.5rem] p-8 md:p-10 border border-white/10 relative overflow-hidden group shadow-2xl">
+                <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full -mr-48 -mt-48 blur-[100px] group-hover:bg-indigo-500/15 transition-all duration-700 font-bold" />
+                <div className="absolute bottom-0 left-0 w-64 h-64 bg-purple-600/5 rounded-full -ml-32 -mb-32 blur-[80px]" />
+
+                <div className="relative">
+                    <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-10">
+                        <div>
+                            <div className="flex items-center gap-4 mb-3">
+                                <div className="p-3 bg-indigo-500 rounded-2xl shadow-xl shadow-indigo-500/30 ring-4 ring-indigo-500/10 scale-110">
+                                    <ClipboardList className="h-6 w-6 text-white" />
+                                </div>
+                                <h2 className="text-3xl font-black text-white tracking-tight">
+                                    Accountability <span className="text-indigo-400">Agent</span>
+                                </h2>
+                            </div>
+                            <p className="text-white/40 text-sm font-medium italic pl-1">
+                                "Your personalized study guide, ensuring you never miss a milestone."
+                            </p>
+                        </div>
+                        <div className="flex flex-wrap gap-4">
+                            <button
+                                onClick={() => setShowAssistant(true)}
+                                className="flex items-center gap-3 px-8 py-3.5 bg-indigo-500 hover:bg-indigo-400 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-indigo-500/25 transition-all hover:scale-[1.02] active:scale-95"
+                            >
+                                <Sparkles className="h-4 w-4" />
+                                Optimize Schedule
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="bg-black/20 rounded-[2rem] p-6 border border-white/5">
+                        <StudyQueue onPlan={() => setShowAssistant(true)} />
+                    </div>
+                </div>
+            </div>
+
             {/* Subject Filter Menu */}
             <section>
-                <div className="flex items-center justify-between mb-6">
-                    <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                        <Filter className="h-5 w-5 text-indigo-300" />
-                        Explore Subjects
-                    </h2>
-                    <button
-                        onClick={() => setShowImportModal(true)}
-                        className="flex items-center gap-2 px-6 py-2.5 bg-indigo-500 hover:bg-indigo-400 text-white rounded-full text-sm font-bold shadow-lg shadow-indigo-500/20 transition-all hover:scale-[1.02] active:scale-95"
-                    >
-                        <Plus className="h-4 w-4" />
-                        Import Material
-                    </button>
+                <div className="flex items-center justify-between mb-8">
+                    <div>
+                        <h2 className="text-2xl font-black text-white tracking-tight flex items-center gap-3">
+                            <Filter className="h-6 w-6 text-indigo-400" />
+                            Knowledge <span className="text-white/40 font-bold">Library</span>
+                        </h2>
+                        <p className="text-[10px] uppercase font-black tracking-[0.2em] text-white/20 mt-1">Filter by subject area or search globally</p>
+                    </div>
+                    <div className="flex items-center gap-4">
+                        <div className="relative group/subj-search">
+                            <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-white/20 group-focus-within/subj-search:text-indigo-400 transition-colors" />
+                            <input
+                                type="text"
+                                placeholder="Search subjects..."
+                                value={subjectSearch}
+                                onChange={(e) => setSubjectSearch(e.target.value)}
+                                className="bg-white/5 border border-white/10 rounded-xl py-2 pl-10 pr-4 text-xs text-white placeholder:text-white/20 w-48 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 transition-all font-medium"
+                            />
+                        </div>
+                        <div className="hidden md:flex relative group/search">
+                            <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-white/20 group-focus-within/search:text-indigo-400 transition-colors" />
+                            <input
+                                type="text"
+                                placeholder="Search all materials..."
+                                value={searchQuery}
+                                onChange={(e) => handleSearch(e.target.value)}
+                                className="bg-white/5 border border-white/10 rounded-2xl py-3 pl-12 pr-6 text-sm text-white placeholder:text-white/20 w-80 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all font-medium"
+                            />
+                            {isSearching && (
+                                <Loader2 className="absolute right-4 top-1/2 -translate-y-1/2 h-4 w-4 text-indigo-400 animate-spin" />
+                            )}
+                        </div>
+                        <button
+                            onClick={() => setShowImportModal(true)}
+                            className="flex items-center gap-3 px-8 py-3.5 bg-white/5 border border-white/10 hover:bg-indigo-500/10 hover:border-indigo-500/30 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all hover:scale-[1.02] active:scale-95 group/import"
+                        >
+                            <Plus className="h-4 w-4 text-indigo-500 group-hover:scale-125 transition-transform" />
+                            Import Material
+                        </button>
+                    </div>
                 </div>
+
+                {/* Global Search Results */}
+                {globalResults && (
+                    <div className="mb-12 animate-in slide-in-from-top-4 duration-500">
+                        <div className="flex items-center justify-between mb-6">
+                            <h3 className="text-xs font-black text-indigo-400 uppercase tracking-[0.3em] flex items-center gap-2">
+                                <Sparkles className="h-4 w-4" />
+                                Discovered Online
+                            </h3>
+                            <button onClick={() => setGlobalResults(null)} className="text-white/20 hover:text-white transition-colors">
+                                <X className="h-4 w-4" />
+                            </button>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {globalResults.materials.map((res: any) => (
+                                <div key={res.id} className="bg-white/5 border border-white/10 rounded-[2rem] p-6 hover:border-indigo-500/30 transition-all group overflow-hidden relative">
+                                    <div className="absolute top-0 right-0 p-6 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <button
+                                            onClick={() => handleImport(res.id)}
+                                            className="p-3 bg-indigo-500 text-white rounded-2xl shadow-xl shadow-indigo-500/20 hover:scale-110 active:scale-95 transition-all"
+                                            title="Add to Library"
+                                        >
+                                            <Plus className="h-5 w-5" />
+                                        </button>
+                                    </div>
+                                    <div className="flex items-start gap-4 mb-4">
+                                        <div className={`p-4 rounded-2xl bg-gradient-to-br from-indigo-500/20 to-purple-600/20 text-indigo-400 shadow-inner`}>
+                                            <BookOpen className="h-6 w-6" />
+                                        </div>
+                                        <div>
+                                            <h4 className="text-white font-bold leading-tight line-clamp-2 pr-8">{res.title}</h4>
+                                            <span className="text-[10px] uppercase font-black tracking-widest text-indigo-400/60 mt-2 block">
+                                                {res.subjects?.name || 'Shared Content'}
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <p className="text-white/40 text-xs font-medium line-clamp-3 mb-4 leading-relaxed italic">
+                                        "{res.overview}"
+                                    </p>
+                                </div>
+                            ))}
+                        </div>
+                        <div className="h-px bg-white/5 mt-12 mb-8 w-full" />
+                    </div>
+                )}
 
                 <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide">
                     <button
@@ -273,30 +411,32 @@ export default function Dashboard() {
                         </span>
                     </button>
 
-                    {subjects.map((subject) => {
-                        const Icon = ICON_MAP[subject.icon] || BookOpen
-                        const isActive = selectedSubject === subject.id
-                        return (
-                            <button
-                                key={subject.id}
-                                onClick={() => setSelectedSubject(subject.id)}
-                                className={`
+                    {subjects
+                        .filter(s => s.name.toLowerCase().includes(subjectSearch.toLowerCase()))
+                        .map((subject) => {
+                            const Icon = ICON_MAP[subject.icon] || BookOpen
+                            const isActive = selectedSubject === subject.id
+                            return (
+                                <button
+                                    key={subject.id}
+                                    onClick={() => setSelectedSubject(subject.id)}
+                                    className={`
                   flex-shrink-0 flex flex-col items-center gap-3 p-4 rounded-2xl border transition-all duration-300 min-w-[120px]
                   ${isActive
-                                        ? 'bg-white/20 border-white/40 shadow-lg scale-105'
-                                        : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20 hover:scale-102'}
+                                            ? 'bg-white/20 border-white/40 shadow-lg scale-105'
+                                            : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20 hover:scale-102'}
                 `}
-                            >
-                                <div className={`p-3 rounded-xl bg-gradient-to-br ${subject.color} shadow-md`}>
-                                    <Icon className="h-6 w-6 text-white" />
-                                </div>
-                                <span className={`text-sm font-medium ${isActive ? 'text-white' : 'text-white/70'}`}>
-                                    {subject.name}
-                                </span>
-                                {isActive && <div className="h-1 w-8 bg-white rounded-full mt-1" />}
-                            </button>
-                        )
-                    })}
+                                >
+                                    <div className={`p-3 rounded-xl bg-gradient-to-br ${subject.color} shadow-md`}>
+                                        <Icon className="h-6 w-6 text-white" />
+                                    </div>
+                                    <span className={`text-sm font-medium ${isActive ? 'text-white' : 'text-white/70'}`}>
+                                        {subject.name}
+                                    </span>
+                                    {isActive && <div className="h-1 w-8 bg-white rounded-full mt-1" />}
+                                </button>
+                            )
+                        })}
                 </div>
             </section>
 
@@ -367,9 +507,8 @@ export default function Dashboard() {
                     </div>
                 </div>
 
-                {/* Right Column: Credentials, Group Builder & Groups List */}
+                {/* Right Column: Group Builder & Groups List */}
                 <div className="space-y-8">
-                    <CredentialsSettings />
 
                     <section className="bg-white/10 backdrop-blur-xl p-6 rounded-3xl border border-white/20 shadow-2xl relative overflow-hidden">
                         <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/10 rounded-full -mr-16 -mt-16 blur-3xl" />
@@ -517,49 +656,18 @@ export default function Dashboard() {
                         </div>
                     </section>
                 </div>
-
-                {/* Study Queue Section */}
-                <div className="mt-12 bg-white/5 rounded-3xl p-8 border border-white/10 relative overflow-hidden group">
-                    <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/5 rounded-full -mr-32 -mt-32 blur-3xl group-hover:bg-indigo-500/10 transition-colors" />
-                    <div className="relative">
-                        <div className="flex items-center justify-between mb-8">
-                            <div>
-                                <h2 className="text-2xl font-black text-white flex items-center gap-3">
-                                    <div className="p-2 bg-indigo-500 rounded-xl shadow-lg shadow-indigo-500/20">
-                                        <ClipboardList className="h-6 w-6 text-white" />
-                                    </div>
-                                    Your Learning Accountability
-                                </h2>
-                                <p className="text-white/40 text-sm mt-1 font-medium italic">"Keeping you on track with upcoming tests and focus areas."</p>
-                            </div>
-                            <button
-                                onClick={importDemoTest}
-                                disabled={isImporting}
-                                className="flex items-center gap-2 px-6 py-3 bg-white/5 border border-white/10 rounded-2xl text-xs font-bold text-white uppercase tracking-widest hover:bg-white/10 transition-all hover:scale-[1.02] shadow-xl active:scale-95 disabled:opacity-50"
-                            >
-                                {isImporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4 text-indigo-400" />}
-                                Demo: Import Test Info
-                            </button>
-                        </div>
-                        <StudyQueue onPlan={() => setShowAssistant(true)} />
-                    </div>
-                </div>
             </div>
 
-            {
-                showAssistant && (
-                    <SchedulingAssistant onClose={() => setShowAssistant(false)} />
-                )
-            }
+            {showAssistant && (
+                <SchedulingAssistant onClose={() => setShowAssistant(false)} />
+            )}
 
-            {
-                showImportModal && (
-                    <MaterialImport
-                        onClose={() => setShowImportModal(false)}
-                        onSuccess={() => fetchInitialData()}
-                    />
-                )
-            }
-        </div >
+            {showImportModal && (
+                <MaterialImport
+                    onClose={() => setShowImportModal(false)}
+                    onSuccess={() => fetchInitialData()}
+                />
+            )}
+        </div>
     )
 }

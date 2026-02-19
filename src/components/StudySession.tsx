@@ -106,8 +106,29 @@ export default function StudySession({ initialData, isGroup }: StudySessionProps
         }
 
         if (latestTime) setTimeRemaining(latestTime);
+
+        const oldLength = learningBlocks.length;
         setLearningBlocks(prev => [...prev, ...processedBlocks])
-        setCurrentBlockIndex(learningBlocks.length)
+
+        // Auto-advance logic: If we have multiple blocks, or if this is the start, 
+        // try to find the best block to stop at (usually the last content or the first question)
+        if (processedBlocks.length > 1) {
+            // Find the index of the first 'question' or 'open_question' in the NEW blocks
+            const firstInteractionIdx = processedBlocks.findIndex(b => b.type === 'question' || b.type === 'open_question');
+
+            if (firstInteractionIdx === -1) {
+                // No questions: show all new content blocks but focus on the last one
+                setCurrentBlockIndex(oldLength + processedBlocks.length - 1);
+            } else if (firstInteractionIdx > 0) {
+                // There is a question: show all content blocks before it
+                setCurrentBlockIndex(oldLength + firstInteractionIdx);
+            } else {
+                // First block is a question: just show it
+                setCurrentBlockIndex(oldLength);
+            }
+        } else {
+            setCurrentBlockIndex(oldLength)
+        }
     }
 
     const handleNext = async () => {

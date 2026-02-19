@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
 
 const defaultGenAI = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY!);
 const defaultModel = defaultGenAI.getGenerativeModel({
@@ -7,11 +7,67 @@ const defaultModel = defaultGenAI.getGenerativeModel({
 });
 
 function getModel(apiKey?: string) {
-    if (!apiKey) return defaultModel;
-    const genAI = new GoogleGenerativeAI(apiKey);
+    const genAI = apiKey ? new GoogleGenerativeAI(apiKey) : defaultGenAI;
     return genAI.getGenerativeModel({
         model: 'gemini-2.0-flash',
-        generationConfig: { responseMimeType: 'application/json' }
+        generationConfig: { responseMimeType: 'application/json' },
+        tools: [
+            {
+                functionDeclarations: [
+                    {
+                        name: 'list_calendar_events',
+                        description: 'List Google Calendar events for a given time range.',
+                        parameters: {
+                            type: SchemaType.OBJECT,
+                            properties: {
+                                timeMin: { type: SchemaType.STRING, description: 'ISO 8601 start time' },
+                                timeMax: { type: SchemaType.STRING, description: 'ISO 8601 end time' }
+                            },
+                            required: ['timeMin', 'timeMax']
+                        }
+                    },
+                    {
+                        name: 'create_study_event',
+                        description: 'Create a new study session in the Google Calendar.',
+                        parameters: {
+                            type: SchemaType.OBJECT,
+                            properties: {
+                                summary: { type: SchemaType.STRING, description: 'Event title' },
+                                description: { type: SchemaType.STRING, description: 'Detailed info' },
+                                startTime: { type: SchemaType.STRING, description: 'ISO 8601 start time' },
+                                endTime: { type: SchemaType.STRING, description: 'ISO 8601 end time' }
+                            },
+                            required: ['summary', 'startTime', 'endTime']
+                        }
+                    },
+                    {
+                        name: 'update_study_event',
+                        description: 'Update an existing study event in the Google Calendar.',
+                        parameters: {
+                            type: SchemaType.OBJECT,
+                            properties: {
+                                eventId: { type: SchemaType.STRING, description: 'ID of the calendar event' },
+                                summary: { type: SchemaType.STRING },
+                                startTime: { type: SchemaType.STRING },
+                                endTime: { type: SchemaType.STRING }
+                            },
+                            required: ['eventId']
+                        }
+                    },
+                    {
+                        name: 'delete_study_event',
+                        description: 'Delete a study event from the Google Calendar.',
+                        parameters: {
+                            type: SchemaType.OBJECT,
+                            properties: {
+                                eventId: { type: SchemaType.STRING, description: 'ID of the calendar event' }
+                            },
+                            required: ['eventId']
+                        }
+                    }
+                ]
+            }
+        ]
     });
 }
 
@@ -76,9 +132,6 @@ async function withRetry<T>(
     throw lastError;
 }
 
-/**
- * Preprocesses raw material content into logical sections with associated questions and time estimates.
- */
 export async function preprocessMaterial(
     title: string,
     content: string,
@@ -133,7 +186,6 @@ export async function preprocessMaterial(
     try {
         return JSON.parse(jsonStr);
     } catch (e) {
-        // Fallback: search for the first { and last }
         const start = jsonStr.indexOf('{');
         const end = jsonStr.lastIndexOf('}');
         if (start !== -1 && end !== -1) {
@@ -143,9 +195,6 @@ export async function preprocessMaterial(
     }
 }
 
-/**
- * Grades an open-ended answer.
- */
 export async function gradeOpenAnswer(
     question: string,
     rubric: string,
@@ -218,7 +267,7 @@ export async function generateLearningBlocks(
     ${userAssessment || 'None provided'}
     
     Session Progress:
-    Remaining sections (USE THESE IDs): ${JSON.stringify(currentSessionState.sectionsRemaining)}
+    Remaining sections: ${JSON.stringify(currentSessionState.sectionsRemaining)}
     Previous predictions: ${JSON.stringify(currentSessionState.predictionsHistory)}
     Session started at: ${currentSessionState.startTime}
 
@@ -228,7 +277,7 @@ export async function generateLearningBlocks(
     Goal: Decide the next logical step and provide an updated time estimation.
     
     CRITICAL RULES:
-    1. If you want to teach a concept from the "Remaining sections" list, you MUST return an 'action' block with "action": "load_section" and the correct "sectionId" from the list above.
+    1. ${isInitial ? "IMPORTANTE: This is the START of the session. Briefly greet the user and then IMMEDIATELY return an 'action' block with \"action\": \"load_section\" and the \"sectionId\" of the first section in the list." : "If you want to teach a concept from the \"Remaining sections\" list, you MUST return an 'action' block with \"action\": \"load_section\" and the correct \"sectionId\" from the list above."}
     2. CONSULT THE USER KNOWLEDGE ROADMAP. If a section covers concepts the user has already mastered, SKIP it and explain why (briefly).
     3. DO NOT write your own long explanations if a section in the list covers the topic. Use the sections!
     4. Use 'content' blocks only for brief transitions, feedback, or "connective tissue" between sections.
@@ -246,10 +295,9 @@ export async function generateLearningBlocks(
       "action": "load_section",
       "sectionId": "THE_ID_FROM_THE_REMAINING_SECTIONS_LIST"
     }]
-  `;
+    `;
 
     try {
-        console.log('--- Calling Gemini AI ---');
         const text = await withRetry(async () => {
             const model = getModel(apiKey);
             const result = await model.generateContent(prompt);
@@ -274,5 +322,52 @@ export async function generateLearningBlocks(
             type: 'content',
             text: `Brain fog encountered. (Error: ${error.message?.substring(0, 50)})`
         }];
+    }
+}
+
+export async function planAccountabilitySchedule(
+    userId: string,
+    queueItems: any[],
+    userPrefs: any,
+    calendarEvents: any[],
+    apiKey?: string
+): Promise<string> {
+    const prompt = `
+    You are the Leraar AI Accountability Agent. Your goal is to manage the user's study schedule using their Google Calendar and internal study queue.
+    
+    Current Date/Time: ${new Date().toISOString()}
+    User Preferences: ${JSON.stringify(userPrefs)}
+    Existing Calendar Events: ${JSON.stringify(calendarEvents)}
+    Study Queue (Pending): ${JSON.stringify(queueItems)}
+    
+    CRITICAL RULES:
+    1. Look for conflicts. If a study session overlaps with an external event, YOU MUST RESCHEDULE IT.
+    2. Mark your events. Leraar AI events always start with "[Leraar AI]". 
+    3. Be efficient. Use the user's preferred study times.
+    4. Don't be intrusive. Respect the user's "avoid" times.
+    5. Communicate clearly. If you are suggesting a new schedule or moving things, explain WHY based on the calendar data.
+    
+    If you see a conflict or need to plan a new session:
+    1. Call tools to manage Google Calendar.
+    2. Propose a plan to the user.
+    
+    RETURN A JSON RESPONSE explaining your actions and proposals:
+    {
+      "explanation": "string",
+      "actions_taken": ["string"],
+      "proposed_sessions": [{"title": "string", "start": "string", "end": "string"}]
+    }
+    `;
+
+    try {
+        const model = getModel(apiKey);
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        // In a real scenario with Tool Calling, we'd handle tool calls here.
+        // For now, we return the explanation text.
+        return response.text();
+    } catch (error: any) {
+        console.error('Error planning schedule:', error);
+        throw error;
     }
 }

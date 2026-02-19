@@ -43,11 +43,27 @@ export async function getInitialAIBlocks(
 
     const { session, knowledgeMap } = await getSessionState(user.id, materialId)
 
-    const { data: sections } = await supabase
+    let { data: sections } = await supabase
         .from('material_sections')
         .select('id, title, estimated_time_seconds')
         .eq('material_id', materialId)
         .order('order_index')
+
+    // FALLBACK: If no sections found, it might be a seeded material or failed import
+    if (!sections || sections.length === 0) {
+        console.log(`[Leraar Action] No sections found for ${materialId}. Triggering late-preprocessing...`)
+        try {
+            await processMaterialAction(materialId)
+            const { data: refetched } = await supabase
+                .from('material_sections')
+                .select('id, title, estimated_time_seconds')
+                .eq('material_id', materialId)
+                .order('order_index')
+            sections = refetched
+        } catch (err) {
+            console.error("Failed to process material on fallback:", err)
+        }
+    }
 
     const sectionsRemaining = sections?.map(s => ({
         id: s.id,

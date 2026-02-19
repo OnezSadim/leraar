@@ -38,3 +38,4 @@ An AI-powered school learning companion built to help students study smarter.
 - **2026-02-19**: Implemented Login/Signup split. Signup is Emerald/Teal; Login is Indigo.
 - **2026-02-19**: Configured Supabase SSR middleware with `/signup` allowlist.
 - **2026-02-19**: Implemented exponential backoff for AI calls in `src/lib/ai.ts` to solve `429 Too Many Requests` issues.
+- **2026-02-19**: Integrated WhatsApp connectivity using `whatsapp-web.js`. Added `whatsapp_connection` table, background service `scripts/whatsapp-service.ts`, and frontend settings UI. AI bot now considers WhatsApp messages for context.
