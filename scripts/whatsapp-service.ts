@@ -26,7 +26,7 @@ async function runService(userId: string) {
         }
     });
 
-    client.on('qr', async (qr) => {
+    client.on('qr', async (qr: string) => {
         console.log('[WhatsApp Service] QR Code generated');
         const qrContent = await qrcode.toDataURL(qr);
 
@@ -54,7 +54,7 @@ async function runService(userId: string) {
             .eq('user_id', userId);
     });
 
-    client.on('message', async (msg) => {
+    client.on('message', async (msg: any) => {
         console.log(`[WhatsApp Service] Message received: ${msg.body}`);
 
         // Store the message as an 'action' or 'context' for the AI
@@ -73,7 +73,7 @@ async function runService(userId: string) {
         // Optional: If the message is for the AI, trigger a processing event
     });
 
-    client.on('disconnected', async (reason) => {
+    client.on('disconnected', async (reason: string) => {
         console.log('[WhatsApp Service] Client disconnected:', reason);
 
         await supabase
