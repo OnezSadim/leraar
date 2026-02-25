@@ -1,3 +1,7 @@
+---
+trigger: always_on
+---
+
 # Project Rules & Context: School Learning Buddy
 
 This file defines the global standards and project context for all AI agents working on the "School Learning Buddy" application.

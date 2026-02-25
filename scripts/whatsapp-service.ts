@@ -52,6 +52,74 @@ async function runService(userId: string) {
                 updated_at: new Date().toISOString()
             })
             .eq('user_id', userId);
+
+        // Start Proactive Outreach Cron Job (Runs every hour)
+        setInterval(async () => {
+            console.log(`[WhatsApp Service] Running proactive outreach check for ${userId}...`);
+            const now = new Date();
+            const nextWeek = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+            // Query for tests in the next 7 days that are pending outreach
+            const { data: tests } = await supabase
+                .from('calendar_events')
+                .select('*')
+                .eq('user_id', userId)
+                .eq('is_test', true)
+                .eq('proactive_outreach_status', 'pending')
+                .gte('start_time', now.toISOString())
+                .lte('start_time', nextWeek.toISOString());
+
+            if (tests && tests.length > 0) {
+                for (const test of tests) {
+                    // Check if there's any non-test study session scheduled BEFORE this test
+                    const { data: studySessions } = await supabase
+                        .from('calendar_events')
+                        .select('id')
+                        .eq('user_id', userId)
+                        .eq('is_test', false)
+                        .gte('start_time', now.toISOString())
+                        .lte('start_time', test.start_time)
+                        .limit(1);
+
+                    if (!studySessions || studySessions.length === 0) {
+                        // User has no study sessions scheduled. Proactively reach out!
+                        const testDate = new Date(test.start_time);
+                        const daysAway = Math.floor((testDate.getTime() - now.getTime()) / (1000 * 3600 * 24));
+                        const dayString = daysAway === 0 ? "today" : daysAway === 1 ? "tomorrow" : `in ${daysAway} days`;
+
+                        const msgStr = `Hi! I noticed you have a test on **${test.summary}** exactly ${dayString}. You don't have any study sessions scheduled for it. Would you like me to find a time for us to sit down and prepare?`;
+
+                        // Send message
+                        const phoneNumberId = client.info.wid._serialized;
+                        await client.sendMessage(phoneNumberId, msgStr);
+
+                        // Log message in AI Context
+                        await supabase.from('agent_messages').insert({
+                            user_id: userId,
+                            content: msgStr,
+                            type: 'whatsapp_message_outbound',
+                            metadata: {
+                                to: phoneNumberId,
+                                timestamp: new Date().toISOString(),
+                                proactive_reason: 'upcoming_test'
+                            }
+                        });
+
+                        // Update status so we don't spam
+                        await supabase
+                            .from('calendar_events')
+                            .update({ proactive_outreach_status: 'sent' })
+                            .eq('id', test.id);
+                    } else {
+                        // Study sessions exist, mark as handled so we don't keep picking it up
+                        await supabase
+                            .from('calendar_events')
+                            .update({ proactive_outreach_status: 'none' })
+                            .eq('id', test.id);
+                    }
+                }
+            }
+        }, 60 * 60 * 1000); // 1 hour
     });
 
     client.on('message', async (msg: any) => {

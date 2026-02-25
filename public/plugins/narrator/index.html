@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio Narrator Plugin</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background-color: transparent;
+            color: white;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            text-align: center;
+        }
+
+        .container {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 1.5rem;
+            padding: 3rem;
+            backdrop-filter: blur(10px);
+            max-width: 500px;
+            width: 90%;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            position: relative;
+        }
+
+        .speaker-icon {
+            width: 64px;
+            height: 64px;
+            margin-bottom: 1.5rem;
+            background: linear-gradient(135deg, #818cf8, #a78bfa);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-left: auto;
+            margin-right: auto;
+            box-shadow: 0 0 20px rgba(129, 140, 248, 0.4);
+            transition: all 0.3s;
+        }
+
+        .speaker-icon.playing {
+            animation: pulse-glow 1.5s infinite;
+        }
+
+        @keyframes pulse-glow {
+            0% {
+                box-shadow: 0 0 0 0 rgba(129, 140, 248, 0.7);
+                transform: scale(1);
+            }
+
+            70% {
+                box-shadow: 0 0 0 20px rgba(129, 140, 248, 0);
+                transform: scale(1.05);
+            }
+
+            100% {
+                box-shadow: 0 0 0 0 rgba(129, 140, 248, 0);
+                transform: scale(1);
+            }
+        }
+
+        h2 {
+            margin: 0 0 0.5rem 0;
+            font-size: 1.5rem;
+            font-weight: 800;
+            color: #e0e7ff;
+        }
+
+        p {
+            margin: 0 0 2rem 0;
+            font-size: 1rem;
+            color: rgba(255, 255, 255, 0.6);
+        }
+
+        button {
+            background: rgba(129, 140, 248, 0.2);
+            border: 1px solid rgba(129, 140, 248, 0.5);
+            color: #818cf8;
+            padding: 1rem 2rem;
+            border-radius: 1rem;
+            font-size: 1rem;
+            font-weight: 700;
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        button:hover {
+            background: rgba(129, 140, 248, 0.3);
+            transform: scale(1.02);
+        }
+
+        button:active {
+            transform: scale(0.98);
+        }
+
+        .sentences {
+            margin-top: 2rem;
+            font-size: 1.1rem;
+            line-height: 1.6;
+            color: rgba(255, 255, 255, 0.9);
+            min-height: 100px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-style: italic;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <div class="speaker-icon" id="icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+            </svg>
+        </div>
+
+        <h2>Audio Narrator</h2>
+        <p id="status-text">Ready to read</p>
+
+        <button id="play-btn">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                <polygon points="5 3 19 12 5 21 5 3"></polygon>
+            </svg>
+            Start Reading
+        </button>
+
+        <div class="sentences" id="sentence-display"></div>
+    </div>
+
+    <script>
+        let currentMode = 'manual';
+        let fullText = "";
+        let isPlaying = false;
+        const synth = window.speechSynthesis;
+        let utterance = null;
+
+        const playBtn = document.getElementById('play-btn');
+        const iconEl = document.getElementById('icon');
+        const statusText = document.getElementById('status-text');
+        const sentenceDisplay = document.getElementById('sentence-display');
+
+        function sendMessageToParent(type, payload = {}) {
+            window.parent.postMessage({ type, payload }, '*');
+        }
+
+        function extractText(material) {
+            // Very naive extraction
+            if (material && material.content) return material.content;
+            return "Welcome to the Audio Narrator plugin. This is an example of text-to-speech reading your study material out loud. We hope you enjoy learning!";
+        }
+
+        function togglePlay() {
+            if (isPlaying) {
+                synth.cancel();
+                setPlayingState(false);
+            } else {
+                startReading();
+            }
+        }
+
+        function setPlayingState(playing) {
+            isPlaying = playing;
+            if (playing) {
+                iconEl.classList.add('playing');
+                playBtn.innerHTML = `
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                        <rect x="6" y="4" width="4" height="16"></rect>
+                        <rect x="14" y="4" width="4" height="16"></rect>
+                    </svg> Stop Reading
+                `;
+                statusText.textContent = "Reading aloud...";
+            } else {
+                iconEl.classList.remove('playing');
+                playBtn.innerHTML = `
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                        <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                    </svg> Start Reading
+                `;
+                statusText.textContent = "Playback stopped";
+                sentenceDisplay.textContent = "";
+            }
+        }
+
+        function startReading() {
+            if (synth.speaking) synth.cancel();
+
+            utterance = new SpeechSynthesisUtterance(fullText);
+
+            // Adjust voice settings if needed
+            utterance.rate = 1.0;
+            utterance.pitch = 1.0;
+
+            utterance.onstart = () => {
+                setPlayingState(true);
+            };
+
+            utterance.onend = () => {
+                setPlayingState(false);
+                statusText.textContent = "Finished reading.";
+
+                // If auto mode is enabled, tell parent to move to the next chapter
+                if (currentMode === 'auto') {
+                    sendMessageToParent('NEXT_CHAPTER');
+                }
+
+                sendMessageToParent('PROGRESS_UPDATE', { completedAudio: true });
+            };
+
+            utterance.onerror = (e) => {
+                console.error("Speech synthesis error", e);
+                setPlayingState(false);
+            };
+
+            // A hacky way to show progress (word boundaries not perfectly supported in all browsers)
+            utterance.onboundary = (e) => {
+                if (e.name === 'sentence' || e.name === 'word') {
+                    const textLength = fullText.length;
+                    // simple text snippet logic
+                    const snippet = fullText.substring(e.charIndex, e.charIndex + 100) + "...";
+                    sentenceDisplay.textContent = `"${snippet}"`;
+                }
+            };
+
+            synth.speak(utterance);
+        }
+
+        playBtn.addEventListener('click', togglePlay);
+
+        // Communication
+        window.addEventListener('message', (event) => {
+            const { type, payload } = event.data;
+
+            if (type === 'INIT_DATA') {
+                const material = payload.material;
+                currentMode = payload.mode || 'manual';
+
+                fullText = extractText(material);
+
+                // Note: Most browsers require a user interaction (click) to start audio playback.
+                // Auto-play immediately on load may be blocked by the browser. 
+                // In 'auto' mode, we could attempt to play, but it might fail unless parent passed a click event somehow.
+                // We'll trust the user to click the play button for the first time.
+            }
+            else if (type === 'MODE_CHANGED') {
+                currentMode = payload.mode;
+            }
+        });
+
+        document.addEventListener('DOMContentLoaded', () => {
+            sendMessageToParent('READY');
+        });
+
+        // Ensure audio stops if window unloads
+        window.addEventListener('beforeunload', () => {
+            synth.cancel();
+        });
+    </script>
+</body>
+
+</html>

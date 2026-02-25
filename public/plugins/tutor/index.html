@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dynamic Tutor Plugin</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background-color: transparent;
+            color: white;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            box-sizing: border-box;
+            overflow-y: auto;
+        }
+
+        .container {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 1.5rem;
+            padding: 2.5rem;
+            backdrop-filter: blur(10px);
+            max-width: 600px;
+            width: 90%;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            transition: all 0.3s ease;
+        }
+
+        .header {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .tutor-avatar {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #10b981, #3b82f6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 0 15px rgba(16, 185, 129, 0.3);
+        }
+
+        h2 {
+            margin: 0;
+            font-size: 1.5rem;
+            font-weight: 800;
+            color: #f8fafc;
+        }
+
+        .message-bubble {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 1rem 1rem 1rem 0;
+            padding: 1.25rem;
+            font-size: 1.1rem;
+            line-height: 1.6;
+            color: rgba(255, 255, 255, 0.9);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .options-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 0.75rem;
+            margin-top: 1rem;
+        }
+
+        button.option-btn {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            padding: 1rem;
+            border-radius: 0.75rem;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            text-align: left;
+            transition: all 0.2s;
+        }
+
+        button.option-btn:hover {
+            background: rgba(255, 255, 255, 0.15);
+            border-color: rgba(255, 255, 255, 0.4);
+            transform: translateY(-2px);
+        }
+
+        button.option-btn.selected-correct {
+            background: rgba(16, 185, 129, 0.2);
+            border-color: rgba(16, 185, 129, 0.5);
+            color: #34d399;
+        }
+
+        button.option-btn.selected-incorrect {
+            background: rgba(239, 68, 68, 0.2);
+            border-color: rgba(239, 68, 68, 0.5);
+            color: #f87171;
+        }
+
+        .action-btn {
+            background: linear-gradient(135deg, #3b82f6, #4f46e5);
+            border: none;
+            color: white;
+            padding: 1rem 2rem;
+            border-radius: 1rem;
+            font-size: 1rem;
+            font-weight: 700;
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            transition: all 0.2s;
+            margin-top: 1rem;
+            align-self: flex-end;
+            box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4);
+        }
+
+        .action-btn:hover {
+            transform: scale(1.02);
+            box-shadow: 0 6px 20px rgba(59, 130, 246, 0.6);
+        }
+
+        .action-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .knowledge-tracker {
+            display: flex;
+            gap: 1rem;
+            padding: 1rem;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 0.75rem;
+            margin-top: 1rem;
+            font-size: 0.85rem;
+            color: rgba(255, 255, 255, 0.6);
+        }
+
+        .score-pill {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 0.25rem 0.75rem;
+            border-radius: 1rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .score-pill span.good {
+            color: #34d399;
+        }
+
+        .score-pill span.needs-work {
+            color: #fbbf24;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container" id="tutor-container">
+        <div class="header">
+            <div class="tutor-avatar">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 2a10 10 0 1 0 10 10H12V2z"></path>
+                    <path d="M12 12 2.32 12"></path>
+                    <circle cx="12" cy="12" r="3"></circle>
+                </svg>
+            </div>
+            <h2>Dynamic Tutor</h2>
+        </div>
+
+        <div id="knowledge-tracker" class="knowledge-tracker hidden">
+            <!-- Dynamically populated score pills -->
+        </div>
+
+        <div class="message-bubble" id="tutor-message">
+            Loading your learning session...
+        </div>
+
+        <div class="options-grid" id="options-container" class="hidden">
+            <!-- Buttons go here dynamically -->
+        </div>
+
+        <button class="action-btn hidden" id="continue-btn" onclick="handleContinue()">Continue</button>
+    </div>
+
+    <script>
+        // Plugin State
+        let currentMode = 'manual';
+        let materialData = null;
+
+        // Tutor State Machine
+        // Phases: PRE_ASSESSMENT -> LEARNING (interleaved with QUIZ) -> SUMMARY
+        let phase = 'PRE_ASSESSMENT';
+        let currentSectionIndex = 0;
+
+        // Simulated Knowledge Tracking
+        // Maps sub-concepts to a score 0-100
+        const knowledgeMap = {};
+
+        // DOM Elements
+        const messageEl = document.getElementById('tutor-message');
+        const optionsContainer = document.getElementById('options-container');
+        const continueBtn = document.getElementById('continue-btn');
+        const trackerEl = document.getElementById('knowledge-tracker');
+
+        // Abstracted Lesson Plan (we'll parse or mock this from materialData)
+        let lessonPlan = {
+            title: "Unknown",
+            sections: [
+                {
+                    id: "sec1",
+                    concept: "Foundations",
+                    content: "This is a foundational concept. It builds the base for everything else.",
+                    quiz: {
+                        question: "What does this concept build?",
+                        options: ["The roof", "The base", "The walls", "Nothing"],
+                        answerIndex: 1,
+                        explanation: "It is a foundational concept, meaning it builds the base."
+                    }
+                },
+                {
+                    id: "sec2",
+                    concept: "Advanced Mechanics",
+                    content: "Now we look at advanced mechanics. These require a solid foundation to understand properly.",
+                    quiz: {
+                        question: "What do advanced mechanics require?",
+                        options: ["Luck", "Speed", "A solid foundation", "Nothing"],
+                        answerIndex: 2,
+                        explanation: "They require the foundation we built in the previous step."
+                    }
+                }
+            ]
+        };
+
+        function sendMessageToParent(type, payload = {}) {
+            window.parent.postMessage({ type, payload }, '*');
+        }
+
+        // --- Core Tutor Logic ---
+
+        function updateTrackerUI() {
+            trackerEl.innerHTML = '';
+            const concepts = Object.keys(knowledgeMap);
+            if (concepts.length === 0) {
+                trackerEl.classList.add('hidden');
+                return;
+            }
+
+            trackerEl.classList.remove('hidden');
+            trackerEl.innerHTML = "<b>Knowledge Profile:</b> ";
+
+            concepts.forEach(concept => {
+                const score = knowledgeMap[concept];
+                const pill = document.createElement('div');
+                pill.className = 'score-pill';
+                const statusClass = score >= 70 ? 'good' : 'needs-work';
+                pill.innerHTML = `${concept} <span class="${statusClass}">${score}%</span>`;
+                trackerEl.appendChild(pill);
+            });
+        }
+
+        function renderPreAssessment() {
+            phase = 'PRE_ASSESSMENT';
+            messageEl.innerHTML = `Welcome to <b>${lessonPlan.title}</b>.<br><br>Before we begin, how would you rate your current understanding of this subject?`;
+
+            optionsContainer.innerHTML = '';
+            const levels = ["I know nothing about it", "I know a little bit", "I am somewhat familiar", "I already know a lot"];
+
+            levels.forEach((level, index) => {
+                const btn = document.createElement('button');
+                btn.className = 'option-btn';
+                btn.textContent = level;
+                btn.onclick = () => {
+                    // Set initial baseline based on self-reporting
+                    const baseline = index * 25; // 0, 25, 50, 75
+                    lessonPlan.sections.forEach(sec => {
+                        knowledgeMap[sec.concept] = baseline;
+                    });
+
+                    sendMessageToParent('PROGRESS_UPDATE', {
+                        action: 'pre_assessment_completed',
+                        baselineScore: baseline
+                    });
+
+                    updateTrackerUI();
+
+                    // Transition to learning after selection
+                    startLearning();
+                };
+                optionsContainer.appendChild(btn);
+            });
+
+            optionsContainer.classList.remove('hidden');
+            continueBtn.classList.add('hidden');
+        }
+
+        function startLearning() {
+            if (currentSectionIndex >= lessonPlan.sections.length) {
+                renderSummary();
+                return;
+            }
+
+            phase = 'LEARNING';
+            const section = lessonPlan.sections[currentSectionIndex];
+
+            // "Dynamic" logic: If they already know this concept well (>80%), offer a shortcut
+            if (knowledgeMap[section.concept] >= 80) {
+                messageEl.innerHTML = `<i>Looks like you already understand <b>${section.concept}</b> well!</i><br><br>Do you want to review the exact details, or skip straight to the practice question?`;
+
+                optionsContainer.innerHTML = '';
+                const btnReview = document.createElement('button');
+                btnReview.className = 'option-btn';
+                btnReview.textContent = "Review the material anyway";
+                btnReview.onclick = () => renderContentBlock(section);
+
+                const btnSkip = document.createElement('button');
+                btnSkip.className = 'option-btn';
+                btnSkip.textContent = "Skip to the question";
+                btnSkip.onclick = () => renderQuiz(section);
+
+                optionsContainer.appendChild(btnReview);
+                optionsContainer.appendChild(btnSkip);
+                optionsContainer.classList.remove('hidden');
+                continueBtn.classList.add('hidden');
+            } else {
+                renderContentBlock(section);
+            }
+        }
+
+        function renderContentBlock(section) {
+            phase = 'LEARNING';
+            messageEl.innerHTML = `<b>Topic: ${section.concept}</b><br><br>${section.content}`;
+
+            optionsContainer.innerHTML = '';
+            optionsContainer.classList.add('hidden');
+
+            continueBtn.classList.remove('hidden');
+            continueBtn.textContent = "Got it, let's practice";
+            continueBtn.onclick = () => renderQuiz(section);
+
+            // Auto mode handling
+            if (currentMode === 'auto') {
+                continueBtn.disabled = true;
+                setTimeout(() => {
+                    if (phase === 'LEARNING' && currentMode === 'auto') {
+                        renderQuiz(section);
+                    }
+                }, 4000); // Wait 4 seconds then auto jump to quiz
+            } else {
+                continueBtn.disabled = false;
+            }
+        }
+
+        function renderQuiz(section) {
+            phase = 'QUIZ';
+            const quiz = section.quiz;
+            messageEl.innerHTML = `<b>Checking understanding...</b><br><br>${quiz.question}`;
+
+            continueBtn.classList.add('hidden');
+            optionsContainer.innerHTML = '';
+            optionsContainer.classList.remove('hidden');
+
+            let answered = false;
+
+            quiz.options.forEach((optText, index) => {
+                const btn = document.createElement('button');
+                btn.className = 'option-btn';
+                btn.textContent = optText;
+
+                btn.onclick = () => {
+                    if (answered) return;
+                    answered = true;
+
+                    const isCorrect = index === quiz.answerIndex;
+
+                    // Highlight selected
+                    if (isCorrect) {
+                        btn.classList.add('selected-correct');
+                        // "Dynamic" logic: Adjust knowledge score up
+                        knowledgeMap[section.concept] = Math.min(100, knowledgeMap[section.concept] + 25);
+                    } else {
+                        btn.classList.add('selected-incorrect');
+                        // Highlight the actual correct one too
+                        optionsContainer.children[quiz.answerIndex].classList.add('selected-correct');
+
+                        // "Dynamic" logic: Adjust knowledge score down
+                        knowledgeMap[section.concept] = Math.max(0, knowledgeMap[section.concept] - 20);
+                    }
+
+                    updateTrackerUI();
+
+                    sendMessageToParent('QUIZ_RESULT', {
+                        concept: section.concept,
+                        correct: isCorrect,
+                        newScore: knowledgeMap[section.concept]
+                    });
+
+                    // Show explanation
+                    setTimeout(() => {
+                        messageEl.innerHTML += `<br><br><i>${isCorrect ? "Correct!" : "Not quite."} ${quiz.explanation}</i>`;
+
+                        continueBtn.classList.remove('hidden');
+                        continueBtn.textContent = "Next Section";
+                        continueBtn.disabled = false;
+                        continueBtn.onclick = () => {
+                            currentSectionIndex++;
+                            startLearning();
+                        };
+
+                        // Auto mode: jump to next section after reading explanation
+                        if (currentMode === 'auto') {
+                            setTimeout(() => {
+                                if (phase === 'QUIZ') {
+                                    currentSectionIndex++;
+                                    startLearning();
+                                }
+                            }, 5000);
+                        }
+                    }, 500);
+                };
+
+                optionsContainer.appendChild(btn);
+            });
+        }
+
+        function renderSummary() {
+            phase = 'SUMMARY';
+            messageEl.innerHTML = `<b>Session Complete!</b><br><br>Great job. Review your knowledge profile below. The system recorded your progress.`;
+            optionsContainer.innerHTML = '';
+            continueBtn.classList.remove('hidden');
+            continueBtn.textContent = "Finish Lesson";
+            continueBtn.onclick = () => {
+                sendMessageToParent('NEXT_CHAPTER'); // Trigger parent app move on
+            };
+        }
+
+        function handleContinue() {
+            // Failsafe continue button action if needed
+        }
+
+        // --- Communication ---
+        window.addEventListener('message', (event) => {
+            const { type, payload } = event.data;
+
+            if (type === 'INIT_DATA') {
+                materialData = payload.material;
+                currentMode = payload.mode || 'manual';
+
+                // If material data actually has a title, update lesson plan
+                if (materialData && materialData.title) {
+                    lessonPlan.title = materialData.title;
+                }
+
+                renderPreAssessment();
+            }
+            else if (type === 'MODE_CHANGED') {
+                currentMode = payload.mode;
+                // Re-trigger auto progression if we are in a waiting state
+                if (currentMode === 'auto') {
+                    if (phase === 'LEARNING') {
+                        setTimeout(() => {
+                            if (phase === 'LEARNING' && currentMode === 'auto') {
+                                renderQuiz(lessonPlan.sections[currentSectionIndex]);
+                            }
+                        }, 4000);
+                    }
+                }
+            }
+        });
+
+        document.addEventListener('DOMContentLoaded', () => {
+            sendMessageToParent('READY');
+        });
+    </script>
+</body>
+
+</html>

@@ -6,6 +6,8 @@ import {
     LearningBlock,
     gradeOpenAnswer,
     preprocessMaterial,
+    extractKnowledgeGaps,
+    KnowledgeProfile,
     SectionedMaterial
 } from '@/lib/ai'
 
@@ -280,4 +282,37 @@ export async function processMaterialAction(materialId: string) {
     }
 
     return { success: true }
+}
+
+export async function assessPriorKnowledge(
+    materialId: string,
+    materialTitle: string,
+    userAssessment: string
+): Promise<KnowledgeProfile> {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) throw new Error('Not authenticated')
+
+    const { data: prefs } = await supabase
+        .from('user_preferences')
+        .select('gemini_api_key')
+        .eq('user_id', user.id)
+        .single()
+
+    const profile = await extractKnowledgeGaps(
+        materialTitle,
+        userAssessment,
+        prefs?.gemini_api_key
+    )
+
+    // Persist the assessed level to the study session so plugins can use it later
+    await supabase.from('study_sessions').upsert({
+        user_id: user.id,
+        material_id: materialId,
+        knowledge_profile: profile,
+        start_time: new Date().toISOString(),
+        predictions_history: []
+    }, { onConflict: 'user_id,material_id' })
+
+    return profile
 }

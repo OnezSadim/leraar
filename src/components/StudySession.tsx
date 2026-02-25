@@ -15,6 +15,7 @@ import {
     Clock
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { Material, MaterialGroup } from '@/types/database'
 import { createClient } from '@/lib/supabase/client'
 import {
@@ -23,6 +24,8 @@ import {
     submitOpenAnswer,
     loadSectionData
 } from '@/lib/actions/study-actions'
+import PluginViewport from './PluginViewport'
+import { ClientAnalyticsLogger } from '@/lib/analytics'
 
 type StudyPhase = 'assessment' | 'processing' | 'learning'
 
@@ -57,10 +60,34 @@ export default function StudySession({ initialData, isGroup }: StudySessionProps
     const [isGeneratingNext, setIsGeneratingNext] = useState(false)
     const [openAnswer, setOpenAnswer] = useState('')
     const [timeRemaining, setTimeRemaining] = useState<string | null>(null)
+    const [activePlugin, setActivePlugin] = useState<string | null>(null)
     const bottomRef = useRef<HTMLDivElement>(null)
 
     const materialId = (initialData as any).id;
     const title = (initialData as any).name || (initialData as Material).title;
+
+    const analyticsLoggerRef = useRef<ClientAnalyticsLogger | null>(null);
+
+    useEffect(() => {
+        if (activePlugin) {
+            supabase.auth.getUser().then(({ data: { user } }) => {
+                const studentId = user ? user.id : 'anonymous';
+                analyticsLoggerRef.current = new ClientAnalyticsLogger(materialId, activePlugin, studentId);
+            });
+        } else {
+            if (analyticsLoggerRef.current) {
+                analyticsLoggerRef.current.finishSession();
+                analyticsLoggerRef.current = null;
+            }
+        }
+
+        return () => {
+            if (analyticsLoggerRef.current) {
+                analyticsLoggerRef.current.finishSession();
+                analyticsLoggerRef.current = null;
+            }
+        }
+    }, [activePlugin, materialId]);
 
     useEffect(() => {
         if (bottomRef.current) {
@@ -199,7 +226,15 @@ export default function StudySession({ initialData, isGroup }: StudySessionProps
                         <ChevronLeft className="h-5 w-5" />
                         <span className="text-sm font-medium">Exit Session</span>
                     </button>
-                    <div className="flex items-center gap-6">
+                    <div className="flex items-center gap-4">
+                        {/* Link to the new full-screen plugin session */}
+                        <Link
+                            href={`/study/${materialId}/session`}
+                            className="hidden sm:flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-500/20 border border-indigo-500/30 hover:bg-indigo-500/30 text-indigo-400 text-xs font-black uppercase tracking-widest transition-all"
+                        >
+                            <Sparkles className="h-3.5 w-3.5" />
+                            Plugin Session
+                        </Link>
                         {timeRemaining && (
                             <div className="flex items-center gap-2 text-indigo-400">
                                 <Clock className="h-4 w-4" />
@@ -216,7 +251,7 @@ export default function StudySession({ initialData, isGroup }: StudySessionProps
                 </div>
             </header>
 
-            <main className="pt-24 pb-32 max-w-3xl mx-auto px-6">
+            <main className="pt-24 pb-32 max-w-4xl mx-auto px-6">
                 {phase === 'assessment' && (
                     <div className="space-y-12 animate-in fade-in slide-in-from-bottom-8 duration-700">
                         <div className="space-y-4">
@@ -254,6 +289,58 @@ export default function StudySession({ initialData, isGroup }: StudySessionProps
 
                 {phase === 'learning' && (
                     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-1000">
+
+                        {/* Plugin Tester Section */}
+                        <div className="w-full bg-white/5 border border-white/10 rounded-3xl p-6 mb-8 flex flex-col gap-4">
+                            <h3 className="text-xl font-bold flex items-center gap-2">
+                                <Sparkles className="h-5 w-5 text-indigo-400" />
+                                Try a Sandbox Plugin
+                            </h3>
+                            <div className="flex gap-4">
+                                <button
+                                    onClick={() => setActivePlugin(activePlugin === 'flashcards' ? null : 'flashcards')}
+                                    className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors border ${activePlugin === 'flashcards' ? 'bg-indigo-500/20 border-indigo-500 text-indigo-400' : 'bg-white/5 border-white/10 hover:border-white/20'}`}
+                                >
+                                    Flashcards
+                                </button>
+                                <button
+                                    onClick={() => setActivePlugin(activePlugin === 'narrator' ? null : 'narrator')}
+                                    className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors border ${activePlugin === 'narrator' ? 'bg-indigo-500/20 border-indigo-500 text-indigo-400' : 'bg-white/5 border-white/10 hover:border-white/20'}`}
+                                >
+                                    Audio Narrator
+                                </button>
+                                <button
+                                    onClick={() => setActivePlugin(activePlugin === 'tutor' ? null : 'tutor')}
+                                    className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors border ${activePlugin === 'tutor' ? 'bg-indigo-500/20 border-indigo-500 text-indigo-400' : 'bg-white/5 border-white/10 hover:border-white/20'}`}
+                                >
+                                    Dynamic Tutor
+                                </button>
+                            </div>
+
+                            {activePlugin && (
+                                <div className="mt-4 border-t border-white/10 pt-4 animate-in fade-in duration-500">
+                                    <PluginViewport
+                                        pluginUrl={`/plugins/${activePlugin}/index.html`}
+                                        materialData={initialData}
+                                        onProgress={(data) => console.log('Plugin Progress:', data)}
+                                        onQuizResult={(data) => {
+                                            console.log('Plugin Quiz Result:', data);
+                                            if (analyticsLoggerRef.current) {
+                                                analyticsLoggerRef.current.logQuizResult(data);
+                                            }
+                                        }}
+                                        onNextChapter={() => {
+                                            console.log('Plugin requested NEXT CHAPTER');
+                                            if (analyticsLoggerRef.current) {
+                                                analyticsLoggerRef.current.finishSession();
+                                                analyticsLoggerRef.current = null;
+                                            }
+                                        }}
+                                    />
+                                </div>
+                            )}
+                        </div>
+
                         {learningBlocks.slice(0, currentBlockIndex + 1).map((block, idx) => (
                             <div key={`${block.id}-${idx}`} className={`p-8 rounded-3xl border transition-all duration-700 ${block.type === 'content' ? 'bg-white/5 border-white/5' : 'bg-indigo-500/10 border-indigo-500/20'} ${idx === currentBlockIndex ? 'animate-fade-in-up' : 'opacity-40 scale-[0.98]'}`}>
                                 {block.type === 'content' && (

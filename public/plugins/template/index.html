@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plugin Template</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: transparent;
+            /* Parent sets the background */
+            color: white;
+            padding: 2rem;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            box-sizing: border-box;
+            text-align: center;
+        }
+
+        .container {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 1rem;
+            padding: 2rem;
+            backdrop-filter: blur(10px);
+            max-width: 600px;
+            width: 100%;
+        }
+
+        h1 {
+            margin-top: 0;
+            font-size: 1.5rem;
+            font-weight: 800;
+            color: #818cf8;
+        }
+
+        p {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 1rem;
+            line-height: 1.5;
+        }
+
+        .status {
+            margin-top: 1rem;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: rgba(255, 255, 255, 0.4);
+            font-weight: 700;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <h1>Plugin Template Loaded</h1>
+        <p id="content-display">Waiting for data from parent...</p>
+        <div class="status" id="mode-display">Mode: Unknown</div>
+    </div>
+
+    <script>
+        // Global State
+        let currentMode = 'manual';
+        let currentData = null;
+
+        // Message dispatcher utility
+        function sendMessageToParent(type, payload = {}) {
+            window.parent.postMessage({ type, payload }, '*');
+        }
+
+        // Listen for messages from the parent window
+        window.addEventListener('message', (event) => {
+            const { type, payload } = event.data;
+
+            if (type === 'INIT_DATA') {
+                console.log('Plugin received INIT_DATA:', payload);
+                currentData = payload.material;
+                currentMode = payload.mode || 'manual';
+
+                document.getElementById('content-display').textContent =
+                    `Received data for: ${currentData?.title || 'Unknown Material'}`;
+                document.getElementById('mode-display').textContent = `Mode: ${currentMode}`;
+
+                // Initialize your plugin logic here based on currentData
+                // ...
+            }
+            else if (type === 'MODE_CHANGED') {
+                currentMode = payload.mode;
+                document.getElementById('mode-display').textContent = `Mode: ${currentMode}`;
+
+                // Adjust your plugin behavior based on mode
+                // if (currentMode === 'auto') { startTimer(); } else { stopTimer(); }
+            }
+        });
+
+        // Tell parent we are ready to receive data as soon as the DOM loads
+        document.addEventListener('DOMContentLoaded', () => {
+            sendMessageToParent('READY');
+        });
+
+        // Example trigger for finishing a section
+        // sendMessageToParent('NEXT_CHAPTER');
+        // sendMessageToParent('PROGRESS_UPDATE', { sectionId: '123', completed: true });
+        // sendMessageToParent('QUIZ_RESULT', { questionId: '456', correct: true, answer: 'A' });
+    </script>
+</body>
+
+</html>

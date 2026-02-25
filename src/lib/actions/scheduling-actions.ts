@@ -80,7 +80,7 @@ export async function chatWithSchedulingAssistant(
     You are an Autonomous Accountability Agent for a personalized learning platform. 
     Your goal is to actively manage the student's schedule, remember their context, and ensure they learn effectively.
     
-    You have FULL ACCESS to act on the user's behalf through the tools listed below.
+    You have FULL ACCESS to act on the user's behalf through the registered tools.
 
     === NEW CAPABILITY: MATERIAL DISCOVERY ===
     If the user mentions a specific topic, textbook, or chapter that you don't recognize in their context, you MUST use the \`search_materials\` tool to see if the content already exists in the global library.
@@ -112,29 +112,10 @@ export async function chatWithSchedulingAssistant(
     CURRENT FOCUS ITEM ID: ${currentQueueItemId || 'None'}
     =======================
 
-    AVAILABLE TOOLS:
-    ${JSON.stringify(availableTools, null, 2)}
-
     INSTRUCTIONS:
     1. **Be Proactive**: If the user mentions a conflict, rescheduling, or an interest, use the tools immediately.
-    2. **Acting on Behalf**: You don't just "chat," you "act." If someone says "schedule this," call the tool.
-    3. **Combined Response**: You can output multiple JSON tool call blocks in your response.
-    4. **Natural Feedback**: Always explain what actions you took to the user.
-
-    TO USE A TOOL, output a JSON block like this:
-    \`\`\`json
-    {
-      "tool": "tool_name",
-      "arguments": { ... }
-    }
-    \`\`\`
-    
-    CRITICAL: 
-    - Always respect "Recurring Busy Slots" when scheduling.
-    - If you update preferences (like new recurring slots), include a block:
-      \`\`\`json
-      { "preference_update": { ... } }
-      \`\`\`
+    2. **Acting on Behalf**: You don't just "chat," you "act." If someone says "schedule this," use the tool.
+    3. **Natural Feedback**: Explain what actions you took to the user, as the tool calls will be executed simultaneously with your reply.
     `;
 
     // Validate history
@@ -151,47 +132,42 @@ export async function chatWithSchedulingAssistant(
         generationConfig: {
             maxOutputTokens: 1000,
         },
+        tools: availableTools.length > 0 ? [{
+            functionDeclarations: availableTools
+        }] : undefined,
     });
 
     const augmentedPrompt = `${systemPrompt}\n\nUser Message: ${messages[messages.length - 1].content}`;
 
     const result = await chat.sendMessage(augmentedPrompt);
-    const responseText = result.response.text();
+    const response = result.response;
 
-    const jsonMatches = responseText.matchAll(/```json\s*([\s\S]*?)\s*```/g);
-    let cleanResponseText = responseText.replace(/```json\s*[\s\S]*?\s*```/g, '');
-    cleanResponseText = cleanResponseText.replace(/^\s*[\r\n]/gm, '').trim();
+    let cleanResponseText = '';
+    try {
+        cleanResponseText = response.text() || '';
+    } catch (e) {
+        // If the model only returns function calls, calling text() might throw.
+    }
 
+    const functionCalls = response.functionCalls();
     const toolsUsed: string[] = [];
 
-    for (const match of jsonMatches) {
-        try {
-            const data = JSON.parse(match[1]);
+    if (functionCalls && functionCalls.length > 0) {
+        for (const call of functionCalls) {
+            try {
+                // Handle Registry Tools
+                let args = call.args;
 
-            // Handle Standard Preference Updates (legacy support)
-            if (data.preference_update) {
-                const { updateUserPreferences } = await import('@/lib/accountability');
-                await updateUserPreferences(user.id, data.preference_update);
-                toolsUsed.push('update_preferences');
-            }
-            if (data.knowledge_update) {
-                const { updateUserKnowledge } = await import('@/lib/accountability');
-                await updateUserKnowledge(user.id, data.knowledge_update);
-                toolsUsed.push('update_knowledge');
-            }
-
-            // Handle Registry Tools
-            if (data.tool) {
                 // If it's a schedule session, inject the currentQueueItemId if not provided
-                if (data.tool === 'schedule_session' && !data.arguments.queueItemId) {
-                    data.arguments.queueItemId = currentQueueItemId;
+                if (call.name === 'schedule_session' && !(args as any).queueItemId) {
+                    (args as any).queueItemId = currentQueueItemId;
                 }
-                await executeAgentTool(user.id, data.tool, data.arguments);
-                toolsUsed.push(data.tool);
-            }
 
-        } catch (e) {
-            console.error("Error parsing AI tool call:", e);
+                await executeAgentTool(user.id, call.name, args);
+                toolsUsed.push(call.name);
+            } catch (e) {
+                console.error(`Error executing AI tool call ${call.name}:`, e);
+            }
         }
     }
 

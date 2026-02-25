@@ -38,7 +38,8 @@ import {
     Brain,
     Palette,
     Music,
-    Microscope
+    Microscope,
+    GitFork
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { Subject, Material, MaterialGroup } from '@/types/database'
@@ -47,6 +48,7 @@ import SchedulingAssistant from './SchedulingAssistant'
 import { estimateQueueItemTime } from '@/lib/accountability'
 import { searchGlobalMaterials, importMaterialToUser } from '@/lib/actions/material-actions'
 import MaterialImport from './MaterialImport'
+import CalendarPlugin from './CalendarPlugin'
 
 const ICON_MAP: Record<string, any> = {
     BookOpen,
@@ -81,6 +83,7 @@ export default function Dashboard() {
     const [materials, setMaterials] = useState<Material[]>([])
     const [materialGroups, setMaterialGroups] = useState<MaterialGroup[]>([])
     const [loading, setLoading] = useState(true)
+    const [currentUserId, setCurrentUserId] = useState<string | null>(null)
 
     const [selectedSubject, setSelectedSubject] = useState('all')
     const [searchQuery, setSearchQuery] = useState('')
@@ -135,6 +138,7 @@ export default function Dashboard() {
             // Fetch user groups
             const { data: { user } } = await supabase.auth.getUser()
             if (user) {
+                setCurrentUserId(user.id)
                 const { data: groupsData } = await supabase
                     .from('material_groups')
                     .select(`
@@ -196,7 +200,7 @@ export default function Dashboard() {
     const filteredMaterials = materials.filter(m => {
         const matchesSubject = selectedSubject === 'all' || m.subject_id === selectedSubject
         const matchesSearch = m.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            m.overview.toLowerCase().includes(searchQuery.toLowerCase())
+            (m.overview ?? m.description ?? '').toLowerCase().includes(searchQuery.toLowerCase())
         return matchesSubject && matchesSearch
     })
 
@@ -455,6 +459,7 @@ export default function Dashboard() {
                         {filteredMaterials.map((material) => {
                             const subject = subjects.find(s => s.id === material.subject_id)
                             const isSelected = selectedMaterials.includes(material.id)
+                            const isFork = !!material.original_material_id
 
                             return (
                                 <div
@@ -464,13 +469,23 @@ export default function Dashboard() {
                     group relative p-5 rounded-2xl border transition-all duration-300 cursor-pointer flex flex-col
                     ${isSelected
                                             ? 'bg-indigo-500/20 border-indigo-400 select-none'
-                                            : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'}
+                                            : isFork
+                                                ? 'bg-teal-500/5 border-teal-500/20 hover:bg-teal-500/10 hover:border-teal-500/40'
+                                                : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'}
                   `}
                                 >
                                     <div className="flex justify-between items-start mb-3">
-                                        <span className={`text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded bg-gradient-to-r ${subject?.color || 'from-slate-500 to-slate-600'} text-white`}>
-                                            {subject?.name || 'Subject'}
-                                        </span>
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <span className={`text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded bg-gradient-to-r ${subject?.color || 'from-slate-500 to-slate-600'} text-white`}>
+                                                {subject?.name || 'Subject'}
+                                            </span>
+                                            {isFork && (
+                                                <span className="inline-flex items-center gap-1 text-[9px] uppercase tracking-wider font-bold px-2 py-1 rounded bg-teal-500/20 text-teal-400 border border-teal-500/30">
+                                                    <GitFork className="h-2.5 w-2.5" />
+                                                    Remixed
+                                                </span>
+                                            )}
+                                        </div>
                                         {isSelected ? (
                                             <div className="bg-indigo-500 rounded-full p-1 ring-4 ring-indigo-500/20">
                                                 <Check className="h-3 w-3 text-white" />
@@ -487,13 +502,22 @@ export default function Dashboard() {
                                     </p>
 
                                     <div className="mt-auto pt-3 border-t border-white/5 flex items-center justify-between">
-                                        <span className="text-[10px] text-white/30 font-medium">Contains Practice Questions</span>
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                router.push(`/discover/${material.id}`);
+                                            }}
+                                            className="flex items-center gap-1.5 text-[10px] text-white/50 hover:text-white transition-colors uppercase tracking-widest font-bold"
+                                        >
+                                            <BookOpen className="h-3 w-3" />
+                                            Details & Comments
+                                        </button>
                                         <button
                                             onClick={(e) => {
                                                 e.stopPropagation();
                                                 router.push(`/study/${material.id}`);
                                             }}
-                                            className="flex items-center gap-1.5 text-[10px] text-indigo-400 font-bold hover:text-indigo-300 transition-colors"
+                                            className="flex items-center gap-1.5 text-[10px] text-indigo-400 font-bold hover:text-indigo-300 transition-colors uppercase tracking-widest"
                                         >
                                             <PlayCircle className="h-3 w-3" />
                                             Start Learning
@@ -509,6 +533,11 @@ export default function Dashboard() {
 
                 {/* Right Column: Group Builder & Groups List */}
                 <div className="space-y-8">
+                    {currentUserId && (
+                        <div className="h-[400px]">
+                            <CalendarPlugin userId={currentUserId} />
+                        </div>
+                    )}
 
                     <section className="bg-white/10 backdrop-blur-xl p-6 rounded-3xl border border-white/20 shadow-2xl relative overflow-hidden">
                         <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/10 rounded-full -mr-16 -mt-16 blur-3xl" />

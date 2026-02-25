@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flashcard Player Plugin</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background-color: transparent;
+            color: white;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            text-align: center;
+            overflow: hidden;
+        }
+
+        .card-container {
+            perspective: 1000px;
+            width: 90%;
+            max-width: 500px;
+            height: 300px;
+            cursor: pointer;
+            margin-bottom: 2rem;
+        }
+
+        .card {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+            transform-style: preserve-3d;
+        }
+
+        .card.is-flipped {
+            transform: rotateY(180deg);
+        }
+
+        .card-face {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            backface-visibility: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+            box-sizing: border-box;
+            border-radius: 1.5rem;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(10px);
+        }
+
+        .card-back {
+            transform: rotateY(180deg);
+            background: rgba(99, 102, 241, 0.1);
+            border-color: rgba(99, 102, 241, 0.3);
+        }
+
+        h2 {
+            margin: 0 0 1rem 0;
+            font-size: 1.5rem;
+            font-weight: 800;
+            color: #e0e7ff;
+        }
+
+        p {
+            margin: 0;
+            font-size: 1.25rem;
+            color: rgba(255, 255, 255, 0.8);
+            line-height: 1.5;
+        }
+
+        .controls {
+            display: flex;
+            gap: 1rem;
+        }
+
+        button {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.75rem;
+            font-size: 0.875rem;
+            font-weight: 600;
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            transition: all 0.2s;
+        }
+
+        button:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        button:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        #progress {
+            margin-top: 1rem;
+            font-size: 0.75rem;
+            color: rgba(255, 255, 255, 0.4);
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+        }
+
+        .auto-indicator {
+            position: absolute;
+            top: 2rem;
+            right: 2rem;
+            font-size: 0.75rem;
+            color: #818cf8;
+            font-weight: 800;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            display: none;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% {
+                opacity: 0.5;
+            }
+
+            50% {
+                opacity: 1;
+            }
+
+            100% {
+                opacity: 0.5;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="auto-indicator" id="auto-indicator">Auto Mode</div>
+
+    <div class="card-container" id="card-container">
+        <div class="card" id="card">
+            <div class="card-face card-front">
+                <span
+                    style="font-size:0.7rem; color: #818cf8; text-transform: uppercase; letter-spacing: 0.1em; font-weight:800; margin-bottom: 1rem;">Front</span>
+                <h2 id="card-front-text">Loading...</h2>
+            </div>
+            <div class="card-face card-back">
+                <span
+                    style="font-size:0.7rem; color: #818cf8; text-transform: uppercase; letter-spacing: 0.1em; font-weight:800; margin-bottom: 1rem;">Back</span>
+                <p id="card-back-text">...</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="controls">
+        <button id="btn-prev" disabled>Previous</button>
+        <button id="btn-next">Next</button>
+    </div>
+
+    <div id="progress">0 / 0</div>
+
+    <script>
+        let currentMode = 'manual';
+        let flashcards = [];
+        let currentIndex = 0;
+        let isFlipped = false;
+        let autoTimer = null;
+
+        const cardEl = document.getElementById('card');
+        const containerEl = document.getElementById('card-container');
+        const frontTextEl = document.getElementById('card-front-text');
+        const backTextEl = document.getElementById('card-back-text');
+        const prevBtn = document.getElementById('btn-prev');
+        const nextBtn = document.getElementById('btn-next');
+        const progressEl = document.getElementById('progress');
+        const autoIndicator = document.getElementById('auto-indicator');
+
+        function sendMessageToParent(type, payload = {}) {
+            window.parent.postMessage({ type, payload }, '*');
+        }
+
+        function extractFlashcards(material) {
+            // Very naive extraction: attempt to parse or make mock flashcards from string
+            // Replace this with actual material JSON parsing logic based on your schema
+            return [
+                { front: "What is an Opaque Origin?", back: "An iframe sandbox property that prevents access to window.parent properties like localStorage." },
+                { front: "What does window.postMessage do?", back: "Allows safe cross-origin communication between Window objects." },
+                { front: "What is the purpose of the Plugin Bridge?", back: "To securely pass JSON and events between the host application and the sandbox." }
+            ];
+        }
+
+        function updateUI() {
+            if (flashcards.length === 0) {
+                frontTextEl.textContent = "No flashcards found.";
+                backTextEl.textContent = "";
+                return;
+            }
+
+            cardEl.classList.remove('is-flipped');
+            isFlipped = false;
+
+            setTimeout(() => {
+                frontTextEl.textContent = flashcards[currentIndex].front;
+                backTextEl.textContent = flashcards[currentIndex].back;
+                progressEl.textContent = `${currentIndex + 1} / ${flashcards.length}`;
+
+                prevBtn.disabled = currentIndex === 0;
+
+                if (currentIndex === flashcards.length - 1) {
+                    nextBtn.textContent = "Finish";
+                } else {
+                    nextBtn.textContent = "Next";
+                }
+            }, 100);
+        }
+
+        function nextCard() {
+            if (currentIndex < flashcards.length - 1) {
+                currentIndex++;
+                updateUI();
+                sendMessageToParent('PROGRESS_UPDATE', {
+                    type: 'flashcard',
+                    index: currentIndex,
+                    total: flashcards.length
+                });
+            } else {
+                sendMessageToParent('NEXT_CHAPTER'); // Auto advance to next section
+                if (currentMode === 'auto') stopAutoMode();
+            }
+        }
+
+        function prevCard() {
+            if (currentIndex > 0) {
+                currentIndex--;
+                updateUI();
+            }
+        }
+
+        function handleCardClick() {
+            isFlipped = !isFlipped;
+            if (isFlipped) {
+                cardEl.classList.add('is-flipped');
+            } else {
+                cardEl.classList.remove('is-flipped');
+            }
+        }
+
+        function startAutoMode() {
+            autoIndicator.style.display = 'block';
+            if (autoTimer) clearInterval(autoTimer);
+
+            autoTimer = setInterval(() => {
+                if (!isFlipped) {
+                    handleCardClick();
+                } else {
+                    nextCard();
+                }
+            }, 3000); // 3 seconds per action
+        }
+
+        function stopAutoMode() {
+            autoIndicator.style.display = 'none';
+            if (autoTimer) {
+                clearInterval(autoTimer);
+                autoTimer = null;
+            }
+        }
+
+        // Event Listeners
+        containerEl.addEventListener('click', () => {
+            if (currentMode === 'manual') handleCardClick();
+        });
+
+        nextBtn.addEventListener('click', () => {
+            if (currentMode === 'auto') stopAutoMode();
+            nextCard();
+        });
+
+        prevBtn.addEventListener('click', () => {
+            if (currentMode === 'auto') stopAutoMode();
+            prevCard();
+        });
+
+        // Communication
+        window.addEventListener('message', (event) => {
+            const { type, payload } = event.data;
+
+            if (type === 'INIT_DATA') {
+                const material = payload.material;
+                currentMode = payload.mode || 'manual';
+
+                flashcards = extractFlashcards(material);
+                updateUI();
+
+                if (currentMode === 'auto') startAutoMode();
+            }
+            else if (type === 'MODE_CHANGED') {
+                currentMode = payload.mode;
+                if (currentMode === 'auto') {
+                    startAutoMode();
+                } else {
+                    stopAutoMode();
+                }
+            }
+        });
+
+        document.addEventListener('DOMContentLoaded', () => {
+            sendMessageToParent('READY');
+        });
+    </script>
+</body>
+
+</html>

@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react'
 import { getWhatsAppStatus, startWhatsAppConnection, disconnectWhatsApp } from '@/lib/actions/whatsapp-actions'
-import { Button } from '@/components/ui/button' // Assuming a common button component exists
 import { Loader2, QrCode, MessageSquare, CheckCircle, XCircle } from 'lucide-react'
 
 export function WhatsAppSettings() {
@@ -72,11 +71,11 @@ export function WhatsAppSettings() {
                 </div>
                 <div>
                     {!status || status.status === 'disconnected' ? (
-                        <status className="px-3 py-1 rounded-full bg-gray-100 text-gray-600 text-xs font-medium">Disconnected</status>
+                        <span className="px-3 py-1 rounded-full bg-gray-100 text-gray-600 text-xs font-medium">Disconnected</span>
                     ) : status.status === 'connecting' ? (
-                        <status className="px-3 py-1 rounded-full bg-yellow-100 text-yellow-600 text-xs font-medium animate-pulse">Connecting...</status>
+                        <span className="px-3 py-1 rounded-full bg-yellow-100 text-yellow-600 text-xs font-medium animate-pulse">Connecting...</span>
                     ) : (
-                        <status className="px-3 py-1 rounded-full bg-green-100 text-green-600 text-xs font-medium">Connected</status>
+                        <span className="px-3 py-1 rounded-full bg-green-100 text-green-600 text-xs font-medium">Connected</span>
                     )}
                 </div>
             </div>

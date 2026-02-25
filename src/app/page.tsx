@@ -43,6 +43,12 @@ export default async function Home() {
           </div>
 
           <div className="flex items-center gap-3">
+            <Link href="/discover" className="hidden sm:flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-500/10 to-teal-500/10 hover:from-emerald-500/20 hover:to-teal-500/20 border border-emerald-500/20 text-emerald-400 font-bold rounded-xl transition-all shadow-lg hover:shadow-emerald-500/20">
+              Discover & Remix
+            </Link>
+            <Link href="/plugins" className="hidden sm:flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-violet-500/10 to-purple-500/10 hover:from-violet-500/20 hover:to-purple-500/20 border border-violet-500/20 text-violet-400 font-bold rounded-xl transition-all shadow-lg hover:shadow-violet-500/20">
+              Plugin Marketplace
+            </Link>
             <button className="p-2.5 rounded-xl bg-white/5 border border-white/10 text-white/60 hover:text-white hover:bg-white/10 transition-all relative">
               <Bell className="h-5 w-5" />
               <span className="absolute top-2.5 right-2.5 w-2 h-2 bg-indigo-500 rounded-full border border-black" />

@@ -1,4 +1,5 @@
 import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
+import { listEvents, createStudyEvent, updateStudyEvent, deleteStudyEvent } from './google-calendar';
 
 const defaultGenAI = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY!);
 const defaultModel = defaultGenAI.getGenerativeModel({
@@ -6,7 +7,7 @@ const defaultModel = defaultGenAI.getGenerativeModel({
     generationConfig: { responseMimeType: 'application/json' }
 });
 
-function getModel(apiKey?: string) {
+export function getModel(apiKey?: string) {
     const genAI = apiKey ? new GoogleGenerativeAI(apiKey) : defaultGenAI;
     return genAI.getGenerativeModel({
         model: 'gemini-2.0-flash',
@@ -71,6 +72,59 @@ function getModel(apiKey?: string) {
     });
 }
 
+export interface KnowledgeProfile {
+    gaps: string[];
+    currentLevel: 'beginner' | 'intermediate' | 'advanced';
+    recommendedFocus: string[];
+    rationale: string;
+}
+
+export async function extractKnowledgeGaps(
+    materialTitle: string,
+    userAssessment: string,
+    apiKey?: string
+): Promise<KnowledgeProfile> {
+    const prompt = `
+    You are an expert educator performing a quick prior knowledge assessment.
+
+    Topic / Material: ${materialTitle}
+    Student's Self-Assessment: "${userAssessment}"
+
+    Your task:
+    1. Identify specific knowledge gaps the student likely has based on what they wrote.
+    2. Estimate their current level: "beginner", "intermediate", or "advanced".
+    3. Suggest 2-4 topics or concepts they should focus on first.
+    4. Write a brief rationale explaining your assessment.
+
+    RETURN ONLY A JSON OBJECT matching this schema:
+    {
+      "gaps": ["string"],
+      "currentLevel": "beginner" | "intermediate" | "advanced",
+      "recommendedFocus": ["string"],
+      "rationale": "string"
+    }
+    `;
+
+    const text = await withRetry(async () => {
+        const model = getModel(apiKey);
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        return response.text();
+    });
+
+    const jsonStr = text.replace(/```json|```/g, '').trim();
+    try {
+        return JSON.parse(jsonStr);
+    } catch (e) {
+        const start = jsonStr.indexOf('{');
+        const end = jsonStr.lastIndexOf('}');
+        if (start !== -1 && end !== -1) {
+            return JSON.parse(jsonStr.substring(start, end + 1));
+        }
+        throw e;
+    }
+}
+
 export interface LearningBlock {
     id: string;
     type: 'content' | 'question' | 'open_question' | 'action';
@@ -103,7 +157,7 @@ export interface SectionedMaterial {
     sections: Section[];
 }
 
-async function withRetry<T>(
+export async function withRetry<T>(
     fn: () => Promise<T>,
     maxRetries: number = 3,
     initialDelay: number = 2000
@@ -325,6 +379,41 @@ export async function generateLearningBlocks(
     }
 }
 
+export async function executeCalendarTools(userId: string, calls: any[]) {
+    const results = [];
+    for (const call of calls) {
+        let resultData: any;
+        try {
+            switch (call.name) {
+                case 'list_calendar_events':
+                    resultData = await listEvents(userId, new Date(call.args.timeMin), new Date(call.args.timeMax));
+                    break;
+                case 'create_study_event':
+                    resultData = await createStudyEvent(userId, call.args);
+                    break;
+                case 'update_study_event':
+                    resultData = await updateStudyEvent(userId, call.args.eventId, call.args);
+                    break;
+                case 'delete_study_event':
+                    await deleteStudyEvent(userId, call.args.eventId);
+                    resultData = { success: true };
+                    break;
+                default:
+                    resultData = { error: `Unknown tool: ${call.name}` };
+            }
+        } catch (e: any) {
+            resultData = { error: e.message };
+        }
+        results.push({
+            functionResponse: {
+                name: call.name,
+                response: resultData
+            }
+        });
+    }
+    return results;
+}
+
 export async function planAccountabilitySchedule(
     userId: string,
     queueItems: any[],
@@ -361,10 +450,17 @@ export async function planAccountabilitySchedule(
 
     try {
         const model = getModel(apiKey);
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        // In a real scenario with Tool Calling, we'd handle tool calls here.
-        // For now, we return the explanation text.
+        const chat = model.startChat();
+        let result = await chat.sendMessage(prompt);
+        let response = result.response;
+
+        const functionCalls = response.functionCalls();
+        if (functionCalls && functionCalls.length > 0) {
+            const toolResults = await executeCalendarTools(userId, functionCalls);
+            result = await chat.sendMessage(toolResults);
+            response = result.response;
+        }
+
         return response.text();
     } catch (error: any) {
         console.error('Error planning schedule:', error);

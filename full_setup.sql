@@ -18,12 +18,64 @@ CREATE TABLE IF NOT EXISTS subjects (
 -- Create materials table
 CREATE TABLE IF NOT EXISTS materials (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
   subject_id TEXT REFERENCES subjects(id),
+  chapter_id TEXT, -- Logical folder/chapter reference
   title TEXT NOT NULL,
-  overview TEXT NOT NULL,
-  content TEXT NOT NULL,
+  description TEXT, -- Formerly overview
+  content_text TEXT NOT NULL, -- Core text content for full-text pg indexing
+  content_hash TEXT, -- SHA-256 hash of the content text for deduplication
+  media_urls JSONB DEFAULT '[]'::jsonb, -- Array of base64 strings or storage URLs
+  video_source TEXT, -- Remote video URL if applicable
+  file_type TEXT, -- e.g. "pdf", "word", "image", "video", "text"
+  sort_order INTEGER DEFAULT 0,
+  
+  -- The segments column stores the extracted hierarchical structure.
+  -- JSON Schema: [{ id: uuid, type: 'heading'|'content', title?: string, text?: string, children?: Segment[] }]
+  segments JSONB DEFAULT '[]'::jsonb,
+  
+  subject_tags JSONB DEFAULT '[]'::jsonb,
+  education_system_tags JSONB DEFAULT '[]'::jsonb,
   practice_questions JSONB DEFAULT '[]'::jsonb,
+  original_material_id UUID REFERENCES materials(id) ON DELETE SET NULL,
+  deltas JSONB DEFAULT '[]'::jsonb,
+  upvotes INTEGER DEFAULT 0,
+  downvotes INTEGER DEFAULT 0,
+  helped_me_pass INTEGER DEFAULT 0,
+  fork_count INTEGER DEFAULT 0,
+  trust_score FLOAT GENERATED ALWAYS AS (
+      (upvotes * 1.5) - (downvotes * 2.0) + (helped_me_pass * 3.0) + (fork_count * 2.0)
+  ) STORED,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Create material_comments table
+CREATE TABLE IF NOT EXISTS material_comments (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  material_id UUID REFERENCES materials(id) ON DELETE CASCADE,
+  content TEXT NOT NULL,
+  likes_count INTEGER DEFAULT 0,
+  dislikes_count INTEGER DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Create material_reactions table
+CREATE TABLE IF NOT EXISTS material_reactions (
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  material_id UUID REFERENCES materials(id) ON DELETE CASCADE,
+  reaction_type TEXT NOT NULL, -- 'like' or 'dislike'
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  PRIMARY KEY (user_id, material_id)
+);
+
+-- Create comment_reactions table
+CREATE TABLE IF NOT EXISTS comment_reactions (
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  comment_id UUID REFERENCES material_comments(id) ON DELETE CASCADE,
+  reaction_type TEXT NOT NULL, -- 'like' or 'dislike'
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  PRIMARY KEY (user_id, comment_id)
 );
 
 -- Create material_groups table
@@ -165,12 +217,74 @@ CREATE TABLE IF NOT EXISTS whatsapp_connection (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Create research_logs table
+CREATE TABLE IF NOT EXISTS research_logs (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  hashed_student_id TEXT NOT NULL,
+  material_id TEXT NOT NULL,
+  plugin_name TEXT NOT NULL,
+  duration_seconds INTEGER NOT NULL,
+  quiz_results JSONB DEFAULT '[]'::jsonb,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Create plugins table (Plugin Marketplace)
+CREATE TABLE IF NOT EXISTS plugins (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  author_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  name TEXT NOT NULL,
+  description TEXT,
+  plugin_type TEXT NOT NULL DEFAULT 'custom', -- 'tutor', 'flashcards', 'narrator', 'custom'
+  html_content TEXT NOT NULL,
+  upvotes INTEGER DEFAULT 0,
+  downvotes INTEGER DEFAULT 0,
+  helped_me_pass INTEGER DEFAULT 0,
+  trust_score FLOAT GENERATED ALWAYS AS (
+      (upvotes * 1.5) - (downvotes * 2.0) + (helped_me_pass * 3.0)
+  ) STORED,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Create plugin_comments table
+CREATE TABLE IF NOT EXISTS plugin_comments (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  plugin_id UUID REFERENCES plugins(id) ON DELETE CASCADE,
+  content TEXT NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Create plugin_reactions table
+CREATE TABLE IF NOT EXISTS plugin_reactions (
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  plugin_id UUID REFERENCES plugins(id) ON DELETE CASCADE,
+  reaction_type TEXT NOT NULL, -- 'like' or 'dislike'
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  PRIMARY KEY (user_id, plugin_id)
+);
+
+-- Create calendar_events table
+CREATE TABLE IF NOT EXISTS calendar_events (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  google_event_id TEXT,
+  summary TEXT NOT NULL,
+  start_time TIMESTAMP WITH TIME ZONE NOT NULL,
+  end_time TIMESTAMP WITH TIME ZONE NOT NULL,
+  is_test BOOLEAN DEFAULT false,
+  proactive_outreach_status TEXT DEFAULT 'none', -- 'none', 'pending', 'sent'
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- 2. SECURITY (RLS)
 -- ------------------------------------------
 
 -- Enable Row Level Security
 ALTER TABLE subjects ENABLE ROW LEVEL SECURITY;
 ALTER TABLE materials ENABLE ROW LEVEL SECURITY;
+ALTER TABLE material_comments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE material_reactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE comment_reactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE material_groups ENABLE ROW LEVEL SECURITY;
 ALTER TABLE material_group_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE material_sections ENABLE ROW LEVEL SECURITY;
@@ -184,6 +298,11 @@ ALTER TABLE agent_messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE group_subscriptions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_notes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE whatsapp_connection ENABLE ROW LEVEL SECURITY;
+ALTER TABLE research_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE plugins ENABLE ROW LEVEL SECURITY;
+ALTER TABLE plugin_comments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE plugin_reactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE calendar_events ENABLE ROW LEVEL SECURITY;
 
 -- 3. POLICIES (DROP IF EXISTS + CREATE)
 -- ------------------------------------------
@@ -195,6 +314,34 @@ CREATE POLICY "Subjects are viewable by everyone" ON subjects FOR SELECT USING (
 -- Materials
 DROP POLICY IF EXISTS "Materials are viewable by everyone" ON materials;
 CREATE POLICY "Materials are viewable by everyone" ON materials FOR SELECT USING (true);
+
+-- Material Comments
+DROP POLICY IF EXISTS "Comments are viewable by everyone" ON material_comments;
+CREATE POLICY "Comments are viewable by everyone" ON material_comments FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Users can insert comments" ON material_comments;
+CREATE POLICY "Users can insert comments" ON material_comments FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can delete their own comments" ON material_comments;
+CREATE POLICY "Users can delete their own comments" ON material_comments FOR DELETE USING (auth.uid() = user_id);
+
+-- Material Reactions
+DROP POLICY IF EXISTS "Material reactions are viewable by everyone" ON material_reactions;
+CREATE POLICY "Material reactions are viewable by everyone" ON material_reactions FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Users can upsert their own material reactions" ON material_reactions;
+CREATE POLICY "Users can upsert their own material reactions" ON material_reactions FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can update their own material reactions" ON material_reactions;
+CREATE POLICY "Users can update their own material reactions" ON material_reactions FOR UPDATE USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can delete their own material reactions" ON material_reactions;
+CREATE POLICY "Users can delete their own material reactions" ON material_reactions FOR DELETE USING (auth.uid() = user_id);
+
+-- Comment Reactions
+DROP POLICY IF EXISTS "Comment reactions are viewable by everyone" ON comment_reactions;
+CREATE POLICY "Comment reactions are viewable by everyone" ON comment_reactions FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Users can upsert their own comment reactions" ON comment_reactions;
+CREATE POLICY "Users can upsert their own comment reactions" ON comment_reactions FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can update their own comment reactions" ON comment_reactions;
+CREATE POLICY "Users can update their own comment reactions" ON comment_reactions FOR UPDATE USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can delete their own comment reactions" ON comment_reactions;
+CREATE POLICY "Users can delete their own comment reactions" ON comment_reactions FOR DELETE USING (auth.uid() = user_id);
 
 -- Material Groups
 DROP POLICY IF EXISTS "Material groups are viewable by authenticated users" ON material_groups;
@@ -310,6 +457,48 @@ CREATE POLICY "Users can upsert their own connection" ON whatsapp_connection FOR
 DROP POLICY IF EXISTS "Users can update their own connection" ON whatsapp_connection;
 CREATE POLICY "Users can update their own connection" ON whatsapp_connection FOR UPDATE USING (auth.uid() = user_id);
 
+-- Research Logs
+DROP POLICY IF EXISTS "Users can insert research logs" ON research_logs;
+CREATE POLICY "Users can insert research logs" ON research_logs FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
+
+-- Plugins
+DROP POLICY IF EXISTS "Plugins are viewable by everyone" ON plugins;
+CREATE POLICY "Plugins are viewable by everyone" ON plugins FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Authenticated users can publish plugins" ON plugins;
+CREATE POLICY "Authenticated users can publish plugins" ON plugins FOR INSERT WITH CHECK (auth.uid() = author_id);
+DROP POLICY IF EXISTS "Authors can update their plugins" ON plugins;
+CREATE POLICY "Authors can update their plugins" ON plugins FOR UPDATE USING (auth.uid() = author_id);
+DROP POLICY IF EXISTS "Authors can delete their plugins" ON plugins;
+CREATE POLICY "Authors can delete their plugins" ON plugins FOR DELETE USING (auth.uid() = author_id);
+
+-- Plugin Comments
+DROP POLICY IF EXISTS "Plugin comments are viewable by everyone" ON plugin_comments;
+CREATE POLICY "Plugin comments are viewable by everyone" ON plugin_comments FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Users can insert plugin comments" ON plugin_comments;
+CREATE POLICY "Users can insert plugin comments" ON plugin_comments FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can delete own plugin comments" ON plugin_comments;
+CREATE POLICY "Users can delete own plugin comments" ON plugin_comments FOR DELETE USING (auth.uid() = user_id);
+
+-- Plugin Reactions
+DROP POLICY IF EXISTS "Plugin reactions are viewable by everyone" ON plugin_reactions;
+CREATE POLICY "Plugin reactions are viewable by everyone" ON plugin_reactions FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Users can insert plugin reactions" ON plugin_reactions;
+CREATE POLICY "Users can insert plugin reactions" ON plugin_reactions FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can update plugin reactions" ON plugin_reactions;
+CREATE POLICY "Users can update plugin reactions" ON plugin_reactions FOR UPDATE USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can delete plugin reactions" ON plugin_reactions;
+CREATE POLICY "Users can delete plugin reactions" ON plugin_reactions FOR DELETE USING (auth.uid() = user_id);
+
+-- Calendar Events
+DROP POLICY IF EXISTS "Users can view their own calendar events" ON calendar_events;
+CREATE POLICY "Users can view their own calendar events" ON calendar_events FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can insert their own calendar events" ON calendar_events;
+CREATE POLICY "Users can insert their own calendar events" ON calendar_events FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can update their own calendar events" ON calendar_events;
+CREATE POLICY "Users can update their own calendar events" ON calendar_events FOR UPDATE USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can delete their own calendar events" ON calendar_events;
+CREATE POLICY "Users can delete their own calendar events" ON calendar_events FOR DELETE USING (auth.uid() = user_id);
+
 -- 4. SEED DATA
 -- ------------------------------------------
 
@@ -340,3 +529,92 @@ INSERT INTO subjects (id, name, icon, color) VALUES
 ('muziek', 'Muziekwetenschappen', 'Music', 'from-purple-400 to-indigo-500'),
 ('nlt', 'NLT', 'Microscope', 'from-teal-400 to-emerald-500')
 ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, icon = EXCLUDED.icon, color = EXCLUDED.color;
+
+-- ------------------------------------------
+-- MIGRATION: Update existing materials table
+-- ------------------------------------------
+
+DO $$
+BEGIN
+    If NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='materials' AND column_name='user_id') THEN
+        ALTER TABLE materials ADD COLUMN user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE;
+    END IF;
+    If NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='materials' AND column_name='chapter_id') THEN
+        ALTER TABLE materials ADD COLUMN chapter_id TEXT;
+    END IF;
+    If NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='materials' AND column_name='description') THEN
+        ALTER TABLE materials ADD COLUMN description TEXT;
+    END IF;
+    If NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='materials' AND column_name='content_text') THEN
+        ALTER TABLE materials ADD COLUMN content_text TEXT;
+    END IF;
+    If NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='materials' AND column_name='media_urls') THEN
+        ALTER TABLE materials ADD COLUMN media_urls JSONB DEFAULT '[]'::jsonb;
+    END IF;
+    If NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='materials' AND column_name='video_source') THEN
+        ALTER TABLE materials ADD COLUMN video_source TEXT;
+    END IF;
+    If NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='materials' AND column_name='file_type') THEN
+        ALTER TABLE materials ADD COLUMN file_type TEXT;
+    END IF;
+    If NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='materials' AND column_name='sort_order') THEN
+        ALTER TABLE materials ADD COLUMN sort_order INTEGER DEFAULT 0;
+    END IF;
+    If NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='materials' AND column_name='subject_tags') THEN
+        ALTER TABLE materials ADD COLUMN subject_tags JSONB DEFAULT '[]'::jsonb;
+    END IF;
+    If NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='materials' AND column_name='education_system_tags') THEN
+        ALTER TABLE materials ADD COLUMN education_system_tags JSONB DEFAULT '[]'::jsonb;
+    END IF;
+    If NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='materials' AND column_name='original_material_id') THEN
+        ALTER TABLE materials ADD COLUMN original_material_id UUID REFERENCES materials(id) ON DELETE SET NULL;
+    END IF;
+    If NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='materials' AND column_name='deltas') THEN
+        ALTER TABLE materials ADD COLUMN deltas JSONB DEFAULT '[]'::jsonb;
+    END IF;
+    If NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='materials' AND column_name='upvotes') THEN
+        ALTER TABLE materials ADD COLUMN upvotes INTEGER DEFAULT 0;
+    END IF;
+    If NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='materials' AND column_name='downvotes') THEN
+        ALTER TABLE materials ADD COLUMN downvotes INTEGER DEFAULT 0;
+    END IF;
+    If NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='materials' AND column_name='helped_me_pass') THEN
+        ALTER TABLE materials ADD COLUMN helped_me_pass INTEGER DEFAULT 0;
+    END IF;
+    If NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='materials' AND column_name='fork_count') THEN
+        ALTER TABLE materials ADD COLUMN fork_count INTEGER DEFAULT 0;
+    END IF;
+    If NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='materials' AND column_name='trust_score') THEN
+        ALTER TABLE materials ADD COLUMN trust_score FLOAT GENERATED ALWAYS AS (
+            (upvotes * 1.5) - (downvotes * 2.0) + (helped_me_pass * 3.0) + (fork_count * 2.0)
+        ) STORED;
+    END IF;
+    If NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='materials' AND column_name='content_hash') THEN
+        ALTER TABLE materials ADD COLUMN content_hash TEXT;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='materials' AND column_name='sync_original_updates') THEN
+        ALTER TABLE materials ADD COLUMN sync_original_updates BOOLEAN DEFAULT true;
+    END IF;
+END $$;
+
+-- ------------------------------------------
+-- MIGRATION: Update existing plugins table
+-- ------------------------------------------
+
+DO $$
+BEGIN
+    If NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='plugins' AND column_name='upvotes') THEN
+        ALTER TABLE plugins ADD COLUMN upvotes INTEGER DEFAULT 0;
+    END IF;
+    If NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='plugins' AND column_name='downvotes') THEN
+        ALTER TABLE plugins ADD COLUMN downvotes INTEGER DEFAULT 0;
+    END IF;
+    If NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='plugins' AND column_name='helped_me_pass') THEN
+        ALTER TABLE plugins ADD COLUMN helped_me_pass INTEGER DEFAULT 0;
+    END IF;
+    If NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='plugins' AND column_name='trust_score') THEN
+        ALTER TABLE plugins ADD COLUMN trust_score FLOAT GENERATED ALWAYS AS (
+            (upvotes * 1.5) - (downvotes * 2.0) + (helped_me_pass * 3.0)
+        ) STORED;
+    END IF;
+END $$;

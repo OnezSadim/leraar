@@ -1,160 +1,140 @@
+import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server'
 import { updateUserKnowledge, updateUserPreferences } from '@/lib/accountability'
 import { searchGlobalMaterials, importMaterialToUser } from './material-actions'
+import { AITool, registerTool, getGeminiTools, executeTool } from '@/lib/registry'
+import { navigateSiteTool } from '@/lib/tools/navigation-tool'
+import { readWhatsappContextTool } from '@/lib/tools/whatsapp-tool'
 
-export interface ToolDefinition {
-    name: string;
-    description: string;
-    parameters: any;
-    execute: (userId: string, args: any) => Promise<any>;
-}
+// 1. Schedule Session Tool
+export const scheduleSessionTool: AITool = {
+    name: "schedule_session",
+    description: "Schedule a new study session for the user",
+    parameters: z.object({
+        startTime: z.string().describe("ISO 8601 string for the session start time"),
+        durationMinutes: z.number().describe("Duration of the session in minutes"),
+        topic: z.string().describe("Topic or focus of the study session"),
+        queueItemId: z.string().optional().describe("Optional ID of a pending queue item to associate")
+    }),
+    execute: async (userId, { startTime, durationMinutes, topic, queueItemId }) => {
+        const supabase = await createClient()
+        let qId = queueItemId
 
-export const AGENT_TOOLS: Record<string, ToolDefinition> = {
-    schedule_session: {
-        name: "schedule_session",
-        description: "Schedule a new study session for the user",
-        parameters: {
-            type: "object",
-            properties: {
-                startTime: { type: "string", description: "ISO 8601 string for the session start time" },
-                durationMinutes: { type: "number", description: "Duration of the session in minutes" },
-                topic: { type: "string", description: "Topic or focus of the study session" },
-                queueItemId: { type: "string", description: "Optional ID of a pending queue item to associate" }
-            },
-            required: ["startTime", "durationMinutes", "topic"]
-        },
-        execute: async (userId, { startTime, durationMinutes, topic, queueItemId }) => {
-            const supabase = await createClient()
-            let qId = queueItemId
-
-            if (!qId) {
-                const { data: newQ } = await supabase.from('study_queue').insert({
-                    user_id: userId,
-                    test_info: topic,
-                    status: 'scheduled',
-                    estimated_time_seconds: durationMinutes * 60
-                }).select().single()
-                if (newQ) qId = newQ.id
-            }
-
-            if (qId) {
-                const { error } = await supabase.from('user_schedules').insert({
-                    user_id: userId,
-                    queue_item_id: qId,
-                    scheduled_start: startTime,
-                    duration_seconds: durationMinutes * 60,
-                    status: 'upcoming'
-                })
-                if (error) throw error
-
-                await supabase.from('study_queue').update({ status: 'scheduled' }).eq('id', qId)
-                return { success: true, message: `Scheduled ${topic} for ${new Date(startTime).toLocaleString()}` }
-            }
-            return { success: false, error: "Missing queue item" }
-        }
-    },
-    add_note: {
-        name: "add_note",
-        description: "Save a note about the user's learning progress, context, or key details for later recall",
-        parameters: {
-            type: "object",
-            properties: {
-                content: { type: "string", description: "The content of the note" },
-                category: {
-                    type: "string",
-                    enum: ["learning_context", "reminder", "general"],
-                    description: "Category of the note"
-                }
-            },
-            required: ["content", "category"]
-        },
-        execute: async (userId, { content, category }) => {
-            const supabase = await createClient()
-            const { error } = await supabase.from('user_notes').insert({
+        if (!qId) {
+            const { data: newQ } = await supabase.from('study_queue').insert({
                 user_id: userId,
-                content: content,
-                category: category
+                test_info: topic,
+                status: 'scheduled',
+                estimated_time_seconds: durationMinutes * 60
+            }).select().single()
+            if (newQ) qId = newQ.id
+        }
+
+        if (qId) {
+            const { error } = await supabase.from('user_schedules').insert({
+                user_id: userId,
+                queue_item_id: qId,
+                scheduled_start: startTime,
+                duration_seconds: durationMinutes * 60,
+                status: 'upcoming'
             })
             if (error) throw error
-            return { success: true, note: content }
+
+            await supabase.from('study_queue').update({ status: 'scheduled' }).eq('id', qId)
+            return { success: true, message: `Scheduled ${topic} for ${new Date(startTime).toLocaleString()}` }
         }
-    },
-    update_knowledge: {
-        name: "update_knowledge",
-        description: "Update the user's knowledge profile based on their description of what they know",
-        parameters: {
-            type: "object",
-            properties: {
-                knowledgeText: { type: "string", description: "Natural language description of user knowledge" }
-            },
-            required: ["knowledgeText"]
-        },
-        execute: async (userId, { knowledgeText }) => {
-            const res = await updateUserKnowledge(userId, knowledgeText)
-            return { success: true, updatedAssessment: res.updatedAssessment }
-        }
-    },
-    join_group: {
-        name: "join_group",
-        description: "Join a study group by its ID",
-        parameters: {
-            type: "object",
-            properties: {
-                groupId: { type: "string", description: "The UUID of the group to join" }
-            },
-            required: ["groupId"]
-        },
-        execute: async (userId, { groupId }) => {
-            const supabase = await createClient()
-            const { error } = await supabase.from('group_subscriptions').insert({
-                user_id: userId,
-                group_id: groupId
-            })
-            if (error) throw error
-            return { success: true, message: "Successfully joined the group" }
-        }
-    },
-    search_materials: {
-        name: "search_materials",
-        description: "Search the global library or groups for study materials (books, chapters, topics)",
-        parameters: {
-            type: "object",
-            properties: {
-                query: { type: "string", description: "The search query (e.g., 'Biology Chapter 5')" }
-            },
-            required: ["query"]
-        },
-        execute: async (userId, { query }) => {
-            return await searchGlobalMaterials(query)
-        }
-    },
-    import_material: {
-        name: "import_material",
-        description: "Import a discovered material or group into the user's active library",
-        parameters: {
-            type: "object",
-            properties: {
-                materialId: { type: "string", description: "The UUID of the material to import" },
-                groupId: { type: "string", description: "Optional UUID of the group to join simultaneously" }
-            },
-            required: ["materialId"]
-        },
-        execute: async (userId, { materialId, groupId }) => {
-            return await importMaterialToUser(materialId, groupId)
-        }
+        return { success: false, error: "Missing queue item" }
     }
-}
+};
 
-export function getAgentToolDefinitions() {
-    return Object.values(AGENT_TOOLS).map(t => ({
-        name: t.name,
-        description: t.description,
-        parameters: t.parameters
-    }))
-}
+// 2. Add Note Tool
+export const addNoteTool: AITool = {
+    name: "add_note",
+    description: "Save a note about the user's learning progress, context, or key details for later recall",
+    parameters: z.object({
+        content: z.string().describe("The content of the note"),
+        category: z.enum(["learning_context", "reminder", "general"]).describe("Category of the note")
+    }),
+    execute: async (userId, { content, category }) => {
+        const supabase = await createClient()
+        const { error } = await supabase.from('user_notes').insert({
+            user_id: userId,
+            content: content,
+            category: category
+        })
+        if (error) throw error
+        return { success: true, note: content }
+    }
+};
 
-export async function executeAgentTool(userId: string, name: string, args: any) {
-    const tool = AGENT_TOOLS[name];
-    if (!tool) throw new Error(`Tool ${name} not found`);
-    return await tool.execute(userId, args);
-}
+// 3. Update Knowledge Tool
+export const updateKnowledgeTool: AITool = {
+    name: "update_knowledge",
+    description: "Update the user's knowledge profile based on their description of what they know",
+    parameters: z.object({
+        knowledgeText: z.string().describe("Natural language description of user knowledge")
+    }),
+    execute: async (userId, { knowledgeText }) => {
+        const res = await updateUserKnowledge(userId, knowledgeText)
+        return { success: true, updatedAssessment: res.updatedAssessment }
+    }
+};
+
+// 4. Join Group Tool
+export const joinGroupTool: AITool = {
+    name: "join_group",
+    description: "Join a study group by its ID",
+    parameters: z.object({
+        groupId: z.string().describe("The UUID of the group to join")
+    }),
+    execute: async (userId, { groupId }) => {
+        const supabase = await createClient()
+        const { error } = await supabase.from('group_subscriptions').insert({
+            user_id: userId,
+            group_id: groupId
+        })
+        if (error) throw error
+        return { success: true, message: "Successfully joined the group" }
+    }
+};
+
+// 5. Search Materials Tool
+export const searchMaterialsTool: AITool = {
+    name: "search_materials",
+    description: "Search the global library or groups for study materials (books, chapters, topics)",
+    parameters: z.object({
+        query: z.string().describe("The search query (e.g., 'Biology Chapter 5')")
+    }),
+    execute: async (userId, { query }) => {
+        return await searchGlobalMaterials(query)
+    }
+};
+
+// 6. Import Material Tool
+export const importMaterialTool: AITool = {
+    name: "import_material",
+    description: "Import a discovered material or group into the user's active library",
+    parameters: z.object({
+        materialId: z.string().describe("The UUID of the material to import"),
+        groupId: z.string().optional().describe("Optional UUID of the group to join simultaneously")
+    }),
+    execute: async (userId, { materialId, groupId }) => {
+        return await importMaterialToUser(materialId, groupId)
+    }
+};
+
+// Register all tools
+[
+    scheduleSessionTool,
+    addNoteTool,
+    updateKnowledgeTool,
+    joinGroupTool,
+    searchMaterialsTool,
+    importMaterialTool,
+    navigateSiteTool,
+    readWhatsappContextTool
+].forEach(registerTool);
+
+// Export legacy functions bridging to the new registry for backward compatibility if needed, 
+// though we will update scheduling-actions to use registry.ts directly.
+export { getGeminiTools as getAgentToolDefinitions, executeTool as executeAgentTool };
