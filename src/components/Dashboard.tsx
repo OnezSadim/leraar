@@ -44,7 +44,6 @@ import {
 import { createClient } from '@/lib/supabase/client'
 import { Subject, Material, MaterialGroup } from '@/types/database'
 import StudyQueue from './StudyQueue'
-import SchedulingAssistant from './SchedulingAssistant'
 import { estimateQueueItemTime } from '@/lib/accountability'
 import { searchGlobalMaterials, importMaterialToUser } from '@/lib/actions/material-actions'
 import MaterialImport from './MaterialImport'
@@ -93,7 +92,6 @@ export default function Dashboard() {
     const [selectedMaterials, setSelectedMaterials] = useState<string[]>([])
     const [groupName, setGroupName] = useState('')
     const [isSaving, setIsSaving] = useState(false)
-    const [showAssistant, setShowAssistant] = useState(false)
     const [isImporting, setIsImporting] = useState(false)
     const [showImportModal, setShowImportModal] = useState(false)
     const [allGroups, setAllGroups] = useState<MaterialGroup[]>([])
@@ -294,17 +292,17 @@ export default function Dashboard() {
                         </div>
                         <div className="flex flex-wrap gap-4">
                             <button
-                                onClick={() => setShowAssistant(true)}
+                                onClick={() => router.push('/assistant')}
                                 className="flex items-center gap-3 px-8 py-3.5 bg-indigo-500 hover:bg-indigo-400 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-indigo-500/25 transition-all hover:scale-[1.02] active:scale-95"
                             >
                                 <Sparkles className="h-4 w-4" />
-                                Optimize Schedule
+                                Talk with Assistant
                             </button>
                         </div>
                     </div>
 
                     <div className="bg-black/20 rounded-[2rem] p-6 border border-white/5">
-                        <StudyQueue onPlan={() => setShowAssistant(true)} />
+                        <StudyQueue onPlan={() => router.push('/assistant')} />
                     </div>
                 </div>
             </div>
@@ -712,10 +710,6 @@ export default function Dashboard() {
                     </section>
                 </div>
             </div>
-
-            {showAssistant && (
-                <SchedulingAssistant onClose={() => setShowAssistant(false)} />
-            )}
 
             {showImportModal && (
                 <MaterialImport

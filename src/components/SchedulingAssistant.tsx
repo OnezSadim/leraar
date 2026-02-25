@@ -10,6 +10,7 @@ import {
     Loader2
 } from 'lucide-react'
 import { chatWithSchedulingAssistant } from '@/lib/actions/scheduling-actions'
+import CredentialGuard from './CredentialGuard'
 
 interface Message {
     role: 'assistant' | 'user';
@@ -79,7 +80,8 @@ export default function SchedulingAssistant({ onClose, queueItemId }: { onClose:
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
-            <div className="w-full max-w-lg bg-[#121216] border border-white/10 rounded-[2rem] shadow-2xl flex flex-col overflow-hidden max-h-[80vh] animate-in zoom-in-95 duration-300">
+            <div className="w-full max-w-lg bg-[#121216] border border-white/10 rounded-[2rem] shadow-2xl flex flex-col overflow-hidden max-h-[80vh] animate-in zoom-in-95 duration-300"
+            >
                 {/* Header */}
                 <div className="p-6 border-b border-white/5 flex items-center justify-between bg-gradient-to-r from-indigo-500/10 to-transparent">
                     <div className="flex items-center gap-3">
@@ -100,6 +102,11 @@ export default function SchedulingAssistant({ onClose, queueItemId }: { onClose:
                     >
                         <X className="h-5 w-5" />
                     </button>
+                </div>
+
+                {/* Credential Check */}
+                <div className="px-6 pt-4">
+                    <CredentialGuard credentialType="gemini" feature="AI Scheduling Assistant" compact />
                 </div>
 
                 {/* Chat Messages */}

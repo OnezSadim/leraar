@@ -2,6 +2,7 @@ import { ArrowLeft, Settings2 } from 'lucide-react'
 import Link from 'next/link'
 import CredentialsSettings from '@/components/CredentialsSettings'
 import { WhatsAppSettings } from '@/components/WhatsAppSettings'
+import SchoolConnectorSection from '@/components/SchoolConnectorSection'
 
 export default function SettingsPage() {
     return (
@@ -43,6 +44,11 @@ export default function SettingsPage() {
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                             <CredentialsSettings />
                             <WhatsAppSettings />
+                        </div>
+
+                        {/* School connector marketplace */}
+                        <div className="grid grid-cols-1 gap-8 mt-8">
+                            <SchoolConnectorSection />
                         </div>
                     </section>
                 </main>

@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect, useTransition } from 'react';
-import { Puzzle, Eye, EyeOff, Settings, Trash2, ExternalLink, Loader2, LayoutGrid } from 'lucide-react';
+import { Puzzle, Eye, EyeOff, Settings, Trash2, ExternalLink, Loader2, LayoutGrid, ShieldAlert } from 'lucide-react';
 import Link from 'next/link';
+import { useCredentialCheck } from '@/hooks/useCredentialCheck';
 import {
     getInstalledPlugins,
     uninstallPlugin,
@@ -15,6 +16,7 @@ export default function InstalledPluginsPanel() {
     const [loading, setLoading] = useState(true);
     const [isPending, startTransition] = useTransition();
     const [activeWidget, setActiveWidget] = useState<string | null>(null);
+    const creds = useCredentialCheck();
 
     const reload = async () => {
         setLoading(true);
@@ -133,6 +135,24 @@ export default function InstalledPluginsPanel() {
                                 <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
                                     {p.plugin.description}
                                 </p>
+                            )}
+
+                            {/* School connector credential guard */}
+                            {p.plugin.connector_type && !creds.isLoading && !creds.hasMagisterCreds && (
+                                <div className="mt-1">
+                                    <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20">
+                                        <ShieldAlert className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                                        <span className="text-[11px] text-amber-300 font-semibold flex-1">
+                                            School credentials not configured
+                                        </span>
+                                        <Link
+                                            href="/settings#school-connector"
+                                            className="text-[10px] font-black uppercase tracking-wider text-amber-400 hover:text-amber-300 whitespace-nowrap"
+                                        >
+                                            Set up →
+                                        </Link>
+                                    </div>
+                                </div>
                             )}
 
                             {/* Actions */}

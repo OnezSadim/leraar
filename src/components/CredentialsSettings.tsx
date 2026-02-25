@@ -156,7 +156,7 @@ export default function CredentialsSettings() {
         <div className="space-y-8">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 {/* Gemini Section */}
-                <section className="bg-white/5 border border-white/10 rounded-3xl p-6 relative overflow-hidden group">
+                <section id="gemini" className="bg-white/5 border border-white/10 rounded-3xl p-6 relative overflow-hidden group scroll-mt-24">
                     <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/5 rounded-full -mr-16 -mt-16 blur-3xl group-hover:bg-indigo-500/10 transition-colors" />
 
                     <div className="flex items-center justify-between mb-6">
@@ -237,7 +237,7 @@ export default function CredentialsSettings() {
                 </section>
 
                 {/* Magister Section */}
-                <section className="bg-white/5 border border-white/10 rounded-3xl p-6 relative overflow-hidden group">
+                <section id="magister" className="bg-white/5 border border-white/10 rounded-3xl p-6 relative overflow-hidden group scroll-mt-24">
                     <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/5 rounded-full -mr-16 -mt-16 blur-3xl group-hover:bg-purple-500/10 transition-colors" />
 
                     <div className="flex items-center justify-between mb-6">
@@ -325,7 +325,7 @@ export default function CredentialsSettings() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 {/* Google Calendar Section */}
-                <section className="bg-white/5 border border-white/10 rounded-3xl p-6 relative overflow-hidden group">
+                <section id="calendar" className="bg-white/5 border border-white/10 rounded-3xl p-6 relative overflow-hidden group scroll-mt-24">
                     <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/5 rounded-full -mr-16 -mt-16 blur-3xl group-hover:bg-blue-500/10 transition-colors" />
 
                     <div className="flex items-center justify-between mb-6">
