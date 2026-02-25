@@ -5,6 +5,10 @@ import { searchGlobalMaterials, importMaterialToUser } from './material-actions'
 import { AITool, registerTool, getGeminiTools, executeTool } from '@/lib/registry'
 import { navigateSiteTool } from '@/lib/tools/navigation-tool'
 import { readWhatsappContextTool } from '@/lib/tools/whatsapp-tool'
+import { installPlugin, uninstallPlugin, getInstalledPlugins } from './plugin-install-actions'
+import { MagisterConnector } from '@/lib/connectors/magister-connector'
+import { GoogleCalendarConnector } from '@/lib/connectors/google-calendar-connector'
+import { SchoolConnector } from '@/lib/connectors/types'
 
 // 1. Schedule Session Tool
 export const scheduleSessionTool: AITool = {
@@ -123,6 +127,74 @@ export const importMaterialTool: AITool = {
     }
 };
 
+// 7. Manage Plugins Tool
+export const managePluginsTool: AITool = {
+    name: "manage_plugins",
+    description: "Install, uninstall, or list the user's installed plugins. Use this proactively when you detect the user would benefit from a specific plugin capability.",
+    parameters: z.object({
+        action: z.enum(['install', 'uninstall', 'list']).describe("Action to perform"),
+        pluginId: z.string().optional().describe("UUID of the plugin (required for install/uninstall)"),
+        reason: z.string().optional().describe("Brief reason why you are installing/uninstalling this plugin")
+    }),
+    execute: async (_userId, { action, pluginId }) => {
+        if (action === 'list') {
+            const plugins = await getInstalledPlugins();
+            return {
+                installed: plugins.map(p => ({
+                    id: p.plugin_id,
+                    name: p.plugin.name,
+                    type: p.plugin.plugin_type,
+                    connectorType: p.plugin.connector_type,
+                }))
+            };
+        }
+        if (!pluginId) return { success: false, error: 'pluginId is required for install/uninstall' };
+        if (action === 'install') return installPlugin(pluginId);
+        if (action === 'uninstall') return uninstallPlugin(pluginId);
+        return { success: false, error: 'Unknown action' };
+    }
+};
+
+// 8. Fetch School Data Tool
+const CONNECTOR_MAP: Record<string, () => SchoolConnector> = {
+    magister: () => new MagisterConnector(),
+    google_classroom: () => new GoogleCalendarConnector(),
+};
+
+export const fetchSchoolDataTool: AITool = {
+    name: "fetch_school_data",
+    description: "Fetch upcoming assignments, tests, and deadlines from the user's installed school connectors (e.g. Magister, Google Classroom). Returns a unified list sorted by due date.",
+    parameters: z.object({
+        daysAhead: z.number().optional().describe("How many days ahead to look (default: 14)")
+    }),
+    execute: async (userId) => {
+        const supabase = await createClient();
+        const { data } = await supabase
+            .from('installed_plugins')
+            .select('plugin:plugin_id(connector_type)')
+            .eq('user_id', userId);
+
+        if (!data || data.length === 0) {
+            return { assignments: [], message: 'No school connectors installed.' };
+        }
+
+        const installedConnectorTypes = data
+            .map((row) => (row.plugin as unknown as { connector_type: string | null })?.connector_type)
+            .filter((t): t is string => !!t && t in CONNECTOR_MAP);
+
+        const uniqueTypes = [...new Set(installedConnectorTypes)];
+        const allAssignments = await Promise.all(
+            uniqueTypes.map((type) => CONNECTOR_MAP[type]().fetchData(userId))
+        );
+
+        const merged = allAssignments
+            .flat()
+            .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+
+        return { assignments: merged, count: merged.length };
+    }
+};
+
 // Register all tools
 [
     scheduleSessionTool,
@@ -132,7 +204,9 @@ export const importMaterialTool: AITool = {
     searchMaterialsTool,
     importMaterialTool,
     navigateSiteTool,
-    readWhatsappContextTool
+    readWhatsappContextTool,
+    managePluginsTool,
+    fetchSchoolDataTool,
 ].forEach(registerTool);
 
 // Export legacy functions bridging to the new registry for backward compatibility if needed, 

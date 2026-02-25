@@ -9,6 +9,7 @@ import {
     getAgentToolDefinitions,
     executeAgentTool
 } from './agent-registry'
+import { getInstalledPluginTools, getInstalledPluginsSummary } from '@/lib/plugin-runtime'
 
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY!)
 const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
@@ -72,8 +73,18 @@ export async function chatWithSchedulingAssistant(
         knowledge_assessment: {}
     }
 
-    // 2. Dynamic Tool Discovery
-    const availableTools = getAgentToolDefinitions();
+    // 2. Dynamic Tool Discovery — Core tools + installed plugin tools
+    const coreTools = getAgentToolDefinitions();
+    const pluginTools = await getInstalledPluginTools(user.id);
+    const availableTools = [...coreTools, ...pluginTools];
+
+    // 3. Installed Plugin Summary for system prompt
+    const installedPlugins = await getInstalledPluginsSummary(user.id);
+    const installedPluginsText = installedPlugins.length > 0
+        ? installedPlugins.map(p =>
+            `- ${p.name}${p.connectorType ? ` [CONNECTOR: ${p.connectorType}]` : ''} | ${p.toolCount} AI tool(s) | ${p.description ?? 'No description'}`
+        ).join('\n')
+        : 'No plugins installed yet. You can suggest the user visit /plugins to browse the marketplace.';
 
     // 3. Build System Prompt with Rich Context
     const systemPrompt = `
@@ -81,6 +92,10 @@ export async function chatWithSchedulingAssistant(
     Your goal is to actively manage the student's schedule, remember their context, and ensure they learn effectively.
     
     You have FULL ACCESS to act on the user's behalf through the registered tools.
+
+    === INSTALLED PLUGINS ===
+    The following plugins are currently installed for this user. Use the \`manage_plugins\` tool if you detect a missing capability.
+    ${installedPluginsText}
 
     === NEW CAPABILITY: MATERIAL DISCOVERY ===
     If the user mentions a specific topic, textbook, or chapter that you don't recognize in their context, you MUST use the \`search_materials\` tool to see if the content already exists in the global library.

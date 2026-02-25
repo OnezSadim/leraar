@@ -495,6 +495,29 @@ export default function SessionPage() {
                                 />
                             </div>
                         </div>
+
+                        {/* ── Glassmorphic Floating HUD ────────────────────────────────────
+                            Rendered OUTSIDE the plugin iframe — always accessible.
+                            AI Help (bottom-right) + plugin badge (bottom-left).
+                        */}
+                        <div className="fixed bottom-8 right-8 z-[100] flex flex-col items-end gap-3 pointer-events-none">
+                            <button
+                                onClick={() => router.push(`/study/${id}`)}
+                                title="Get help from your AI assistant"
+                                className="pointer-events-auto flex items-center gap-2.5 px-5 py-3 bg-white/[0.08] hover:bg-indigo-500/30 backdrop-blur-2xl border border-white/[0.12] hover:border-indigo-500/50 rounded-2xl text-white/70 hover:text-white font-bold text-sm shadow-2xl shadow-black/50 transition-all duration-300 hover:scale-105 active:scale-95 group"
+                            >
+                                <Sparkles className="w-4 h-4 text-indigo-400 group-hover:animate-pulse" />
+                                AI Help
+                            </button>
+                        </div>
+                        <div className="fixed bottom-8 left-8 z-[100] pointer-events-none">
+                            <div className="flex items-center gap-2.5 px-4 py-2.5 bg-white/[0.05] backdrop-blur-2xl border border-white/[0.08] rounded-2xl shadow-xl shadow-black/40">
+                                <div className={`w-2 h-2 rounded-full bg-gradient-to-r ${meta?.color ?? 'from-indigo-500 to-purple-600'} animate-pulse`} />
+                                <span className="text-white/40 text-xs font-bold uppercase tracking-widest">
+                                    {selectedPlugin.name}
+                                </span>
+                            </div>
+                        </div>
                     </div>
                 )}
             </main>

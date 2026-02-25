@@ -618,3 +618,54 @@ BEGIN
         ) STORED;
     END IF;
 END $$;
+
+-- ------------------------------------------
+-- MIGRATION: Master Architect — Plugin Ecosystem
+-- ------------------------------------------
+
+-- installed_plugins: tracks which plugins each user has installed,
+-- along with per-user config and whether it shows on that user's dashboard.
+CREATE TABLE IF NOT EXISTS installed_plugins (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  plugin_id UUID REFERENCES plugins(id) ON DELETE CASCADE,
+  config JSONB DEFAULT '{}'::jsonb,           -- User-specific plugin config overrides
+  show_on_dashboard BOOLEAN DEFAULT true,     -- User can hide plugins from dashboard without uninstalling
+  installed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(user_id, plugin_id)
+);
+ALTER TABLE installed_plugins ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can view their installed plugins" ON installed_plugins;
+CREATE POLICY "Users can view their installed plugins" ON installed_plugins
+  FOR SELECT USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can install plugins" ON installed_plugins;
+CREATE POLICY "Users can install plugins" ON installed_plugins
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can update their installed plugin config" ON installed_plugins;
+CREATE POLICY "Users can update their installed plugin config" ON installed_plugins
+  FOR UPDATE USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can uninstall plugins" ON installed_plugins;
+CREATE POLICY "Users can uninstall plugins" ON installed_plugins
+  FOR DELETE USING (auth.uid() = user_id);
+
+-- Add capability columns to plugins table
+DO $$
+BEGIN
+    -- JSON array of AI tool definitions (validated on read, no code execution)
+    -- Schema: [{ name, description, parameters: { type: "object", properties: {...}, required: [...] } }]
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='plugins' AND column_name='ai_tools') THEN
+        ALTER TABLE plugins ADD COLUMN ai_tools JSONB DEFAULT '[]'::jsonb;
+    END IF;
+    -- 'magister' | 'canvas' | 'google_classroom' | NULL (NULL = UI-only plugin, not a data connector)
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='plugins' AND column_name='connector_type') THEN
+        ALTER TABLE plugins ADD COLUMN connector_type TEXT;
+    END IF;
+    -- Small HTML snippet for the dashboard widget (sandboxed iframe, same as plugin viewport)
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='plugins' AND column_name='widget_html') THEN
+        ALTER TABLE plugins ADD COLUMN widget_html TEXT;
+    END IF;
+END $$;

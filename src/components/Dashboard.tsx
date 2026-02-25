@@ -49,6 +49,7 @@ import { estimateQueueItemTime } from '@/lib/accountability'
 import { searchGlobalMaterials, importMaterialToUser } from '@/lib/actions/material-actions'
 import MaterialImport from './MaterialImport'
 import CalendarPlugin from './CalendarPlugin'
+import InstalledPluginsPanel from './InstalledPluginsPanel'
 
 const ICON_MAP: Record<string, any> = {
     BookOpen,
@@ -304,6 +305,31 @@ export default function Dashboard() {
 
                     <div className="bg-black/20 rounded-[2rem] p-6 border border-white/5">
                         <StudyQueue onPlan={() => setShowAssistant(true)} />
+                    </div>
+                </div>
+            </div>
+
+            {/* My Plugins Section */}
+            <div className="bg-white/5 backdrop-blur-xl rounded-[2.5rem] p-8 md:p-10 border border-white/10 relative overflow-hidden group shadow-2xl">
+                <div className="absolute top-0 right-0 w-80 h-80 bg-violet-500/10 rounded-full -mr-40 -mt-40 blur-[100px] group-hover:bg-violet-500/15 transition-all duration-700" />
+                <div className="relative">
+                    <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-8">
+                        <div>
+                            <div className="flex items-center gap-4 mb-3">
+                                <div className="p-3 bg-violet-500 rounded-2xl shadow-xl shadow-violet-500/30 ring-4 ring-violet-500/10 scale-110">
+                                    <Sparkles className="h-6 w-6 text-white" />
+                                </div>
+                                <h2 className="text-3xl font-black text-white tracking-tight">
+                                    My <span className="text-violet-400">Plugins</span>
+                                </h2>
+                            </div>
+                            <p className="text-white/40 text-sm font-medium italic pl-1">
+                                "Installed learning tools — visible on your dashboard by default."
+                            </p>
+                        </div>
+                    </div>
+                    <div className="bg-black/20 rounded-[2rem] p-6 border border-white/5">
+                        <InstalledPluginsPanel />
                     </div>
                 </div>
             </div>

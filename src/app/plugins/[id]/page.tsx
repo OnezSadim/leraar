@@ -6,6 +6,7 @@ import { getPlugin, getPluginComments } from '../actions';
 import TrustInteractions from '@/components/social/TrustInteractions';
 import PluginCommentsSection from './PluginCommentsSection';
 import PluginPreview from './PluginPreview';
+import InstallButton from './InstallButton';
 
 const TYPE_COLORS: Record<string, string> = {
     tutor: 'from-indigo-500 to-violet-600',
@@ -56,7 +57,7 @@ export default async function PluginDetailPage({ params }: { params: { id: strin
                                 {plugin.description || 'No description provided.'}
                             </p>
 
-                            <div className="flex items-center gap-6 pt-6 border-t border-slate-200 dark:border-slate-800">
+                            <div className="flex flex-wrap items-center gap-4 pt-6 border-t border-slate-200 dark:border-slate-800">
                                 <TrustInteractions
                                     itemId={id}
                                     itemType="plugin"
@@ -68,6 +69,7 @@ export default async function PluginDetailPage({ params }: { params: { id: strin
                                     <Calendar className="w-4 h-4" />
                                     {new Date(plugin.created_at).toLocaleDateString()}
                                 </span>
+                                <InstallButton pluginId={id} />
                             </div>
                         </div>
 
